@@ -133,7 +133,7 @@ map(x -> df_ml[!,"k_" * string(x)] = [par_maxll[dict_index[x]+num]], subjects)
 map(x -> df_ml[!,"qt_"* string(x)] = [par_maxll[dict_index[x]+num*2]], subjects)
 df_ml[!,"maxll"] = [-nmaxll]
 df_ml[!,"convergence"] = [err]
-CSV.write("estimates_ml.csv", df_ml)
+CSV.write(endDate * "estimates_ml.csv", df_ml) #Allow multiple runs at once
 
 #confidence intervals
 
@@ -207,5 +207,5 @@ map(x -> df_95[!,"t_" * string(x)] = repeat([dict_first[x]],length(subjects)*6),
 map(x -> df_95[!,"c_" * string(x)] = mat_par_95[:,dict_index[x]], subjects)
 map(x -> df_95[!,"k_" * string(x)] = mat_par_95[:,dict_index[x]+num], subjects)
 map(x -> df_95[!,"qt_"* string(x)] = mat_par_95[:,dict_index[x]+num*2], subjects)
-CSV.write("estimates_95CI.csv", df_95)
+CSV.write(endDate * "estimates_95CI.csv", df_95) #Allow multiple runs at once
 
