@@ -1,13 +1,6 @@
-# This program was written by Kimihito Ito and Chayada Piantham.
-# See https://doi.org/10.2807/1560-7917.ES.2021.26.27.2100570
-# and https://doi.org/10.3934/mbe.2022418
-#julia --threads 5 advantage-GT-Rt-mtly.jl -m yearseason_freq.csv -b 6B.1 -s 2020-01-01 -e 2021-01-01
-
-#Includes and packages
-include("lib-GT-H1N1.jl")
-include("lib-qt.jl")
-
 using CSV, Dates, DataFrames, Distributions, NLopt, Getopt
+#julia --threads 5 RelRe.jl -c yearseason_freq.csv -b 6B.1 -s 2020-01-01 -e 2021-01-01
+#TODO: Add abort/error handeling!
 
 #Init variables
 global ftol_prec = 1e-4
@@ -15,30 +8,118 @@ global matrixFile = ""
 global baseline = ""
 global startDate = ""
 global endDate = ""
+global l = 16 # use 7 for flu
+global alpha = 2.03 # use 4.5 for flu
+global theta = 2.32 # use 0.60 for flu
+global unit = ""
+global estimateRGT = false
 
-#Pull in information
+#Pull in information from command line arguments
 println(ARGS)
-for (opt, arg) in getopt(ARGS, "m:s:e:p:b:", ["matrix=", "state=", "end=", "precision=", "baseline="])
-	#@show (opt, arg)
-	if opt == "-m" 
-		global matrixFile = arg
-	elseif opt == "-b" 
-		global baseline = Symbol(arg)
-	elseif opt == "-p" 
-		global ftol_prec = arg
-	elseif opt == "-s" 
-		global startDate = arg #Try YYYY-MM-DD
-	elseif opt == "-e" 
-		global endDate = arg	
-	end
+for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:a:t:u:g", ["count=", "start=", "end=", "precision=", "baseline=", "l=", "alpha=", "theta=", "unit=", "estimateRGT"])
+	  if opt == "-c"
+		    global matrixFile = arg
+	  elseif opt == "-b"
+		    global baseline = Symbol(arg)
+	  elseif opt == "-p" 
+		    global ftol_prec = arg
+	  elseif opt == "-s" 
+		    global startDate = arg #Try YYYY-MM-DD
+	  elseif opt == "-e"
+		    global endDate = arg
+	  elseif opt == "-l" 
+		    global l = parse(Int64, arg)
+	  elseif opt == "-a" 
+		    global alpha = parse(Float64, arg)
+	  elseif opt == "-t" 
+		    global theta = parse(Float64, arg)
+	  elseif opt == "-u"
+        @assert arg in ["M", "W", "D"]
+		    global unit = Symbol(arg)
+    elseif opt == "-g"
+        global estimateRGT = true
+	  end
 end
 
-#TODO: Add abort/error handeling!
+#Generation time distribution
+function g(a, c_GT)
+    if(a < 1 || a > l )
+        return 0
+    else
+        return (cdf(Gamma(alpha, c_GT * theta), a) -
+            cdf(Gamma(alpha, c_GT * theta), a-1))/
+            cdf(Gamma(alpha, c_GT * theta),l)
+    end
+end
+function pmf_g(c_GT)
+    return map(v -> g(v,c_GT), 1:l)
+end
+
+#Renewal model of variant requencies
+function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
+                 vec_qt::Vector{Float64}, vec_t::Vector{Date}, t_s, t_e)
+    num = length(vec_c)
+    @assert length(vec_k) == num
+    @assert length(vec_qt) == num
+    @assert length(vec_t) == num
+    
+    duration = (t_e - t_s).value + 1
+
+    g = Matrix{Float64}(undef, l, num + 1)
+    for j in 1:num
+        g[:,j] = pmf_g(vec_c[j])
+    end
+    g[:,length(vec_c)+1] = pmf_g(1.0)
+    
+    q = Matrix{Float64}(undef, duration, num + 1)
+    for j in 1:num
+        if vec_t[j] <= t_s
+            q[1,j] = vec_qt[j]
+        else
+            q[1,j] = 0.0
+        end
+    end
+    sum_q_subjects =sum(q[1,1:num])
+    if(sum_q_subjects > 1)
+        map(j -> q[1,j] /= sum_q_subjects,1:num)
+        q[1, length(vec_k)+1] = 0
+    else
+        q[1, length(vec_k)+1] = 1 - sum_q_subjects
+    end
+    
+    vec_sum_nmr=Vector{Float64}(undef, num)
+    
+    for i in 2:duration
+        t = t_s + Day(i-1)
+        fill!(vec_sum_nmr, 0.0)
+        sum_dnm = 0.0
+        for k in 1:l
+            t_k = max(1, (t - Day(k) - t_s).value + 1)
+            vec_sum_nmr += vec(g[k, 1:num]).* vec_k .* vec(q[t_k, 1:num])
+            sum_dnm += g[k, num + 1] * q[t_k, num + 1] +
+                sum(vec(g[k, 1:num]).* vec_k .* vec(q[t_k, 1:num]))
+        end
+        map(j -> q[i,j] = (vec_t[j] == t) ? vec_qt[j] :
+            vec_sum_nmr[j] / sum_dnm, 1:num)
+        
+        sum_q_subjects =sum(q[i,1:num])
+        
+        if(sum_q_subjects > 1)
+            map(j -> q[i,j] /= sum_q_subjects,1:num)
+            q[i, num + 1] = 0.0
+        else
+            q[i, num + 1] = 1 - sum_q_subjects
+        end
+    end
+    return q
+end
+
+#Main
 
 #Load in specified matrix file
 println("loading counts")
 df_count = DataFrame(CSV.File(matrixFile))
-@show(df_count)
+@show(df_count) #TODO: Check consistency with unit
 
 #List the baseline
 println("\nBaseline")
@@ -56,21 +137,41 @@ map(x -> dict_index[subjects[x]] = x, 1:length(subjects))
 dict_index[baseline] = length(subjects)+1
 
 #Remove data after end date
-deleteat!(df_count, df_count.date .> Date(endDate))
+if(endDate!="")
+    deleteat!(df_count, df_count.date .> Date(endDate))
+end
 
 #Adjust date range 
-const t_start = Date(startDate)
-const t_end = maximum(df_count.date)+Day(Dates.daysinmonth(maximum(df_count.date))-1)
-#const t_end = Date(endDate) -1
+if(unit==:M)
+    const t_end = maximum(df_count.date)+Day(Dates.daysinmonth(maximum(df_count.date))-1)
+elseif(unit==:W)
+    const t_end = maximum(df_count.date)+Day(6)
+elseif(unit==:D)
+    const t_end = maximum(df_count.date)
+else
+    println("error: the unit is not specified")
+    exit()
+end
+
+#Record the date of variant's first observation
+dict_first = Dict{Symbol,Date}()
+map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
+
+println(dict_first)
+#Remove data before start date
+if(startDate!="")
+    const t_start = Date(startDate)
+    deleteat!(df_count, df_count.date .< Date(startDate))
+else
+    const t_start = minimum(df_count.date)
+end
+
 println("\nTime range of analysis")
 println("Start: " * Dates.format(t_start, dateformat"yyyy-mm-dd"))
 println("End: " * Dates.format(t_end, dateformat"yyyy-mm-dd"))
 
-dict_first = Dict{Symbol,Date}()
-map(v -> dict_first[v]=t_start, variants)
-
-months = filter(row->row.date >= t_start, df_count).date
-mat_obs = Matrix(filter(x->x.date in months, df_count)[:,vcat(subjects,baseline)])
+dates = df_count.date
+mat_obs = Matrix(filter(x->x.date in dates, df_count)[:,vcat(subjects,baseline)])
 
 function negLogL(par::Vector, grad::Vector)
     # println(par)
@@ -81,9 +182,15 @@ function negLogL(par::Vector, grad::Vector)
     try
         q = model_q(vec_c, vec_k, vec_qt, vec_t, t_start, t_end)
         sumll = 0.0
-        for i in 1:length(months)
-            j = Dates.value(months[i]-t_start)+1
-            rows = map(v -> j + v, 0:Dates.daysinmonth(months[i])-1)	#FIX THIS LINE
+        for i in 1:length(dates)
+            j = Dates.value(dates[i]-t_start)+1
+            if(unit==:M)
+                rows = map(v -> j + v, 0:Dates.daysinmonth(dates[i])-1)
+            elseif(unit==:W)
+                rows = map(v -> j + v, 0:6)
+            elseif(unit==:D)
+                rows = [j]
+            end
             probs = vec(max.(0, mean(q[rows, 1:length(subjects)+1], dims=1)))
             obs = mat_obs[i,:]
             sumll += logpdf(Multinomial(sum(obs), probs), obs)
@@ -91,7 +198,6 @@ function negLogL(par::Vector, grad::Vector)
         if !isfinite(sumll)
             return floatmax(Float64)
         end
-        # println(sumll)
         return -sumll
     catch e
         println(e)
@@ -100,8 +206,13 @@ function negLogL(par::Vector, grad::Vector)
 end
 
 vec_c_start = fill(1.0,length(subjects))
-vec_c_lb = fill(1.0,length(subjects))
-vec_c_ub = fill(1.0,length(subjects))
+if estimateRGT
+    vec_c_lb = fill(1.0e-10,length(subjects))
+    vec_c_ub = fill(10.0,length(subjects))
+else
+    vec_c_lb = fill(1.0,length(subjects))
+    vec_c_ub = fill(1.0,length(subjects))
+end
 vec_k_start = fill(1.0,length(subjects))
 vec_k_lb = fill(1.0e-10,length(subjects))
 vec_k_ub = fill(10.0,length(subjects))
