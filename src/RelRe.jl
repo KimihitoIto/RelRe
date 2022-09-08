@@ -13,22 +13,25 @@ global alpha = 2.03 # use 4.5 for flu
 global theta = 2.32 # use 0.60 for flu
 global unit = ""
 global estimateRGT = false
+global detection_delay = 0
 
 #Pull in information from command line arguments
 println(ARGS)
-for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:a:t:u:g", ["count=", "start=", "end=", "precision=", "baseline=", "l=", "alpha=", "theta=", "unit=", "estimateRGT"])
+for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:d:a:t:u:g", ["count=", "start=", "end=", "precision=", "baseline=", "l=", "delay=", "alpha=", "theta=", "unit=", "estimateRGT"])
 	  if opt == "-c"
 		    global matrixFile = arg
 	  elseif opt == "-b"
 		    global baseline = Symbol(arg)
 	  elseif opt == "-p" 
-		    global ftol_prec = arg
+		    global ftol_prec = parse(Float64, arg)
 	  elseif opt == "-s" 
 		    global startDate = arg #Try YYYY-MM-DD
 	  elseif opt == "-e"
 		    global endDate = arg
 	  elseif opt == "-l" 
 		    global l = parse(Int64, arg)
+	  elseif opt == "-d" 
+		    global detection_delay = parse(Int64, arg)
 	  elseif opt == "-a" 
 		    global alpha = parse(Float64, arg)
 	  elseif opt == "-t" 
@@ -42,7 +45,7 @@ for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:a:t:u:g", ["count=", "start=", "end=
 end
 
 #Generation time distribution
-function g(a, c_GT)
+function g2(a, c_GT)
     if(a < 1 || a > l )
         return 0
     else
@@ -51,8 +54,20 @@ function g(a, c_GT)
             cdf(Gamma(alpha, c_GT * theta),l)
     end
 end
+
+function g1(a, c_GT)
+    if(a == 1)
+        return cdf(Gamma(alpha, c_GT * theta), 2)
+    elseif(a == l)
+        return 1 - cdf(Gamma(alpha, c_GT * theta), a)
+    else
+        return cdf(Gamma(alpha, c_GT * theta), a + 1) -
+            cdf(Gamma(alpha, c_GT * theta), a)
+    end
+end
+
 function pmf_g(c_GT)
-    return map(v -> g(v,c_GT), 1:l)
+    return map(v -> g2(v,c_GT), 1:l)
 end
 
 #Renewal model of variant requencies
@@ -127,8 +142,7 @@ println(baseline)
 
 #Specify variants as all, and remove baseline from subjects
 variants = propertynames(df_count)[2:size(df_count,2)]
-subjects = variants
-deleteat!(subjects, subjects .== baseline)
+subjects = filter(x -> x!= baseline, variants)
 println("\nSubject clades")
 @show(subjects)
 
@@ -155,7 +169,7 @@ end
 
 #Record the date of variant's first observation
 dict_first = Dict{Symbol,Date}()
-map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
+map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date)-Day(detection_delay), variants)
 
 println(dict_first)
 #Remove data before start date
@@ -207,8 +221,13 @@ end
 
 vec_c_start = fill(1.0,length(subjects))
 if estimateRGT
-    vec_c_lb = fill(1.0e-10,length(subjects))
-    vec_c_ub = fill(10.0,length(subjects))
+    if unit == :D
+        vec_c_lb = fill(1.0e-10,length(subjects))
+        vec_c_ub = fill(10.0,length(subjects))
+    else
+        println("error: The unit should be a day for the -g option")
+        exit(1)
+    end
 else
     vec_c_lb = fill(1.0,length(subjects))
     vec_c_ub = fill(1.0,length(subjects))
