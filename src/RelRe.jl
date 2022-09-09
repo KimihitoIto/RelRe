@@ -1,49 +1,60 @@
-using CSV, Dates, DataFrames, Distributions, NLopt, Getopt
+using CSV, Dates, DataFrames, Distributions, NLopt, ArgParse
 #julia --threads 5 RelRe.jl -c yearseason_freq.csv -b 6B.1 -s 2020-01-01 -e 2021-01-01
 #TODO: Add abort/error handeling!
 
-#Init variables
-global ftol_prec = 1e-4
-global matrixFile = ""
-global baseline = ""
-global startDate = ""
-global endDate = ""
-global len = 16 # use 7 for flu
-global alpha = 2.03 # use 4.5 for flu
-global theta = 2.32 # use 0.60 for flu
-
-global unit = ""
-global estimateRGT = false
-global detection_delay = 0
-
 #Pull in information from command line arguments
-println(ARGS)
-for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:d:a:t:u:g", ["count=", "start=", "end=", "precision=", "baseline=", "len=", "delay=", "alpha=", "theta=", "unit=", "estimateRGT"])
-	  if opt == "-c"
-		    global matrixFile = arg
-	  elseif opt == "-b"
-		    global baseline = Symbol(arg)
-	  elseif opt == "-p" 
-		    global ftol_prec = parse(Float64, arg)
-	  elseif opt == "-s" 
-		    global startDate = arg #Try YYYY-MM-DD
-	  elseif opt == "-e"
-		    global endDate = arg
-	  elseif opt == "-l"
-		    global len = parse(Int64, arg)
-	  elseif opt == "-d" 
-		    global detection_delay = parse(Int64, arg)
-	  elseif opt == "-a" 
-		    global alpha = parse(Float64, arg)
-	  elseif opt == "-t" 
-		    global theta = parse(Float64, arg)
-	  elseif opt == "-u"
-        @assert arg in ["M", "W", "D"]
-		    global unit = Symbol(arg)
-    elseif opt == "-g"
-        global estimateRGT = true
-	  end
+s = ArgParseSettings()
+@add_arg_table s begin
+    "--count", "-c"
+    help = "an option with an argument"
+    arg_type = String
+    required = true
+    "--start", "-s"
+    arg_type = String
+    default = ""
+    "--end", "-e"
+    arg_type = String
+    default = ""
+    "--precision", "-p"
+    arg_type = Float64
+    default = 1e-4
+    "--baseline", "-b"
+    arg_type = Symbol
+    required = true
+    "--len", "-l"
+    arg_type = Int64
+    default = 16 # use 7 for flu
+    "--delay", "-d"
+    arg_type = Int64
+    default = 0
+    "--alpha", "-a"
+    arg_type = Float64
+    default = 2.03 # use 4.5 for flu
+    "--theta", "-t"
+    arg_type = Float64
+    default = 2.32 # use 0.60 for flu
+    "--unit", "-u"
+    arg_type = Symbol
+    default = :D
+    "--estimateRGT", "-g"
+    action = :store_true
 end
+
+parsed_args = parse_args(ARGS, s)
+@show parsed_args
+
+#Init variables
+const ftol_prec = parsed_args["precision"]
+const matrixFile = parsed_args["count"]
+const baseline = parsed_args["baseline"]
+const startDate = parsed_args["start"]
+const endDate = parsed_args["end"]
+const l = parsed_args["len"]
+const alpha = parsed_args["alpha"]
+const theta = parsed_args["theta"]
+const unit = parsed_args["unit"]
+const estimateRGT = parsed_args["estimateRGT"]
+const detection_delay = parsed_args["delay"]
 
 #Generation time distribution
 function g2(a, c_GT)
@@ -131,7 +142,6 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
 end
 
 #Main
-const l=len #declaration for speeding up
 
 #Load in specified matrix file
 println("loading counts")
@@ -173,7 +183,6 @@ end
 dict_first = Dict{Symbol,Date}()
 map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date)-Day(detection_delay), variants)
 
-println(dict_first)
 #Remove data before start date
 if(startDate!="")
     const t_start = Date(startDate)
