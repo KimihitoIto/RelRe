@@ -8,16 +8,17 @@ global matrixFile = ""
 global baseline = ""
 global startDate = ""
 global endDate = ""
-global l = 16 # use 7 for flu
+global len = 16 # use 7 for flu
 global alpha = 2.03 # use 4.5 for flu
 global theta = 2.32 # use 0.60 for flu
+
 global unit = ""
 global estimateRGT = false
 global detection_delay = 0
 
 #Pull in information from command line arguments
 println(ARGS)
-for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:d:a:t:u:g", ["count=", "start=", "end=", "precision=", "baseline=", "l=", "delay=", "alpha=", "theta=", "unit=", "estimateRGT"])
+for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:d:a:t:u:g", ["count=", "start=", "end=", "precision=", "baseline=", "len=", "delay=", "alpha=", "theta=", "unit=", "estimateRGT"])
 	  if opt == "-c"
 		    global matrixFile = arg
 	  elseif opt == "-b"
@@ -28,8 +29,8 @@ for (opt, arg) in getopt(ARGS, "c:s:e:p:b:l:d:a:t:u:g", ["count=", "start=", "en
 		    global startDate = arg #Try YYYY-MM-DD
 	  elseif opt == "-e"
 		    global endDate = arg
-	  elseif opt == "-l" 
-		    global l = parse(Int64, arg)
+	  elseif opt == "-l"
+		    global len = parse(Int64, arg)
 	  elseif opt == "-d" 
 		    global detection_delay = parse(Int64, arg)
 	  elseif opt == "-a" 
@@ -130,6 +131,7 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
 end
 
 #Main
+const l=len #declaration for speeding up
 
 #Load in specified matrix file
 println("loading counts")
