@@ -36,6 +36,7 @@ s = ArgParseSettings()
     "--unit", "-u"
     arg_type = Symbol
     default = :D
+    required = true
     "--estimateRGT", "-g"
     action = :store_true
 end
@@ -67,6 +68,7 @@ function g2(a, c_GT)
     end
 end
 
+#Generation time distribution (old version)
 function g1(a, c_GT)
     if(a == 1)
         return cdf(Gamma(alpha, c_GT * theta), 2)
@@ -144,9 +146,25 @@ end
 #Main
 
 #Load in specified matrix file
-println("loading counts")
+println("Loading counts")
 df_count = DataFrame(CSV.File(matrixFile))
-@show(df_count) #TODO: Check consistency with unit
+@show(df_count)
+
+#Check whether the first column is a vector of dates
+if(typeof(df_count[:,1])!=Vector{Date})
+    error("The first column is not a vector of dates")
+end
+
+#Check consistency with unit
+if(unit==:M)
+    if(length(unique(Dates.day.(df_count.date))) != 1)
+        error("Dates should be the same day of the month")
+    end
+elseif(unit==:W)
+    if(length(unique(Dates.dayofweek.(df_count.date))) != 1)
+        error("Dates should be the same day of the week")
+    end
+end
 
 #List the baseline
 println("\nBaseline")
