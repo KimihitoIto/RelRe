@@ -1,32 +1,34 @@
 using CSV, Dates, DataFrames, Distributions, NLopt, ArgParse
-#julia --threads 5 RelRe.jl -c yearseason_freq.csv -b 6B.1 -s 2020-01-01 -e 2021-01-01
+#julia --threads 5 RelRe.jl -b baseline -s 2020-01-01 -e 2021-01-01 variant_freq.csv 
 #TODO: Add abort/error handeling!
+#TODO: An option for use of the first date.
 
 #Pull in information from command line arguments
 s = ArgParseSettings()
 @add_arg_table s begin
-    "--count", "-c"
-    help = "an option with an argument"
-    arg_type = String
-    required = true
     "--start", "-s"
     arg_type = String
     default = ""
     "--end", "-e"
     arg_type = String
     default = ""
-    "--precision", "-p"
-    arg_type = Float64
-    default = 1e-4
     "--baseline", "-b"
     arg_type = Symbol
     required = true
+    "--subjects", "-j"
+    arg_type = Symbol
+    nargs = '*'
+    default = []
+    "--breaks", "-w"
+    arg_type = Date
+    nargs = '*'
+    default = []
+    "--precision", "-p"
+    arg_type = Float64
+    default = 1e-4
     "--len", "-l"
     arg_type = Int64
     default = 16 # use 7 for flu
-    "--delay", "-d"
-    arg_type = Int64
-    default = 0
     "--alpha", "-a"
     arg_type = Float64
     default = 2.03 # use 4.5 for flu
@@ -37,8 +39,11 @@ s = ArgParseSettings()
     arg_type = Symbol
     default = :D
     required = true
-    "--estimateRGT", "-g"
+    "--estimate_GT", "-g"
     action = :store_true
+    "count_file"
+    arg_type = String
+    required = true
 end
 
 parsed_args = parse_args(ARGS, s)
@@ -46,16 +51,18 @@ parsed_args = parse_args(ARGS, s)
 
 #Init variables
 const ftol_prec = parsed_args["precision"]
-const matrixFile = parsed_args["count"]
+const matrixFile = parsed_args["count_file"]
 const baseline = parsed_args["baseline"]
-const startDate = parsed_args["start"]
-const endDate = parsed_args["end"]
+const start_date = parsed_args["start"]
+const end_date = parsed_args["end"]
 const l = parsed_args["len"]
 const alpha = parsed_args["alpha"]
 const theta = parsed_args["theta"]
 const unit = parsed_args["unit"]
-const estimateRGT = parsed_args["estimateRGT"]
-const detection_delay = parsed_args["delay"]
+const estimate_GT = parsed_args["estimate_GT"]
+
+const breaks = parsed_args["breaks"]
+const arg_subjects = parsed_args["subjects"]
 
 #Generation time distribution
 function g2(a, c_GT)
@@ -172,7 +179,11 @@ println(baseline)
 
 #Specify variants as all, and remove baseline from subjects
 variants = propertynames(df_count)[2:size(df_count,2)]
-subjects = filter(x -> x!= baseline, variants)
+if(arg_subjects == [])
+    subjects = filter(x -> x!= baseline, variants)
+else
+    subjects = arg_subjects # elements need to be checked
+end
 println("\nSubject clades")
 @show(subjects)
 
@@ -181,8 +192,8 @@ map(x -> dict_index[subjects[x]] = x, 1:length(subjects))
 dict_index[baseline] = length(subjects)+1
 
 #Remove data after end date
-if(endDate!="")
-    deleteat!(df_count, df_count.date .> Date(endDate))
+if(end_date!="")
+    deleteat!(df_count, df_count.date .> Date(end_date))
 end
 
 #Adjust date range 
@@ -199,19 +210,21 @@ end
 
 #Record the date of variant's first observation
 dict_first = Dict{Symbol,Date}()
-map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date)-Day(detection_delay), variants)
+map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
 
 #Remove data before start date
-if(startDate!="")
-    const t_start = Date(startDate)
-    deleteat!(df_count, df_count.date .< Date(startDate))
+if(start_date!="")
+    const t_start = Date(start_date)
+    deleteat!(df_count, df_count.date .< Date(start_date))
 else
     const t_start = minimum(df_count.date)
 end
 
 println("\nTime range of analysis")
-println("Start: " * Dates.format(t_start, dateformat"yyyy-mm-dd"))
-println("End: " * Dates.format(t_end, dateformat"yyyy-mm-dd"))
+println("Start: " * Dates.format(t_start, ISODateFormat))
+println("End: " * Dates.format(t_end, ISODateFormat))
+
+# dates of breaks should be checked
 
 dates = df_count.date
 mat_obs = Matrix(filter(x->x.date in dates, df_count)[:,vcat(subjects,baseline)])
@@ -219,7 +232,7 @@ mat_obs = Matrix(filter(x->x.date in dates, df_count)[:,vcat(subjects,baseline)]
 function negLogL(par::Vector, grad::Vector)
     # println(par)
     vec_c = par[1:length(subjects)]
-    vec_k = par[length(subjects)+1:length(subjects)*2]
+    vec_k = par[length(subjects)+1:length(subjects)*2] ## should be mat_k
     vec_qt = par[length(subjects)*2+1:length(subjects)*3]
     vec_t = map(v -> dict_first[v], subjects)
     try
@@ -249,7 +262,7 @@ function negLogL(par::Vector, grad::Vector)
 end
 
 vec_c_start = fill(1.0,length(subjects))
-if estimateRGT
+if estimate_GT
     if unit == :D
         vec_c_lb = fill(1.0e-10,length(subjects))
         vec_c_ub = fill(10.0,length(subjects))
@@ -292,7 +305,7 @@ map(x -> df_ml[!,"k_" * string(x)] = [par_maxll[dict_index[x]+num]], subjects)
 map(x -> df_ml[!,"qt_"* string(x)] = [par_maxll[dict_index[x]+num*2]], subjects)
 df_ml[!,"maxll"] = [-nmaxll]
 df_ml[!,"convergence"] = [err]
-CSV.write(endDate * "estimates_ml.csv", df_ml) #Allow multiple runs at once
+CSV.write("estimates_ml.csv", df_ml)
 
 #confidence intervals
 
@@ -366,5 +379,5 @@ map(x -> df_95[!,"t_" * string(x)] = repeat([dict_first[x]],length(subjects)*6),
 map(x -> df_95[!,"c_" * string(x)] = mat_par_95[:,dict_index[x]], subjects)
 map(x -> df_95[!,"k_" * string(x)] = mat_par_95[:,dict_index[x]+num], subjects)
 map(x -> df_95[!,"qt_"* string(x)] = mat_par_95[:,dict_index[x]+num*2], subjects)
-CSV.write(endDate * "estimates_95CI.csv", df_95) #Allow multiple runs at once
+CSV.write("estimates_95CI.csv", df_95)
 
