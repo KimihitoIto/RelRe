@@ -44,7 +44,7 @@ s = ArgParseSettings()
     required = true
     "--estimate_GT", "-g"
     action = :store_true
-    "--estimate_CI", "-i"
+    "--estimate_CI", "-i" # no need. set always true
     action = :store_true
 end
 
@@ -238,9 +238,8 @@ end
 println("\nTime range of analysis")
 println("Start: " * Dates.format(t_start, ISODateFormat))
 println("End: " * Dates.format(t_end, ISODateFormat))
-
-println("Breakpoints: " *
-    join(map(d -> Dates.format(d, ISODateFormat),breaks),","))
+println("Breakpoints: [" *
+    join(map(d -> Dates.format(d, ISODateFormat),breaks),",") * "]")
 
 #Check the breakpoints
 for d in breaks
@@ -326,24 +325,8 @@ nmaxll, par_maxll, err = optimize(opt, par_start)
 println("Maximization finished")
 
 println(par_maxll)
-
-df_ml = DataFrame()
-map(x -> df_ml[!,"t_" * string(x)] = [dict_first[x]],subjects)
-map(x -> df_ml[!,"c_" * string(x)] = [par_maxll[dict_index[x]]], subjects)
-if num_windows > 1
-    for w in 1:num_windows
-        map(x -> df_ml[!,"k_" * string(x) * "_w" * string(w)]
-            = [par_maxll[num_subjects * w + dict_index[x]]], subjects)
-    end
-else
-    map(x -> df_ml[!,"k_" * string(x)]
-        = [par_maxll[num_subjects + dict_index[x]]], subjects)
-end
-map(x -> df_ml[!,"qt_"* string(x)]
-    = [par_maxll[num_subjects * (num_windows + 1) + dict_index[x]]], subjects)
-df_ml[!,"maxll"] = [-nmaxll]
-df_ml[!,"convergence"] = [err]
-CSV.write("estimates_ml.csv", df_ml)
+println(-nmaxll) #todo: output to maxll.csv
+println(err)
 
 #Confidence Intervals
 function constr(vec_par, vec_grad)
@@ -365,15 +348,15 @@ function f2(par, grad,i)
 end
 
 if estimate_CI
-    mat_par_95 = Matrix{Float64}(undef,
+    mat_95CI = Matrix{Float64}(undef,
                                  num_subjects * (2 + 2 * num_windows + 2),
                                  num_subjects * (1 + 1 * num_windows + 1))
     
     println("Calculating 95% confidence intervals (CIs)")
     
-    Threads.@threads for i in 1:num_subjects
-        println("Thread " * string(Threads.threadid()) * " calculates CIs of " *
-            string(subjects[i]))
+    Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
+        println("Thread " * string(Threads.threadid()) * " is working on " *
+            string(i) * " th loop of the CI calculation")
         
         opt_c = Opt(:AUGLAG, length(par_maxll))
         opt_c.lower_bounds = par_lb
@@ -384,56 +367,66 @@ if estimate_CI
         inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
         
         opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-        opt_l.xtol_rel = 1e-6 #todo precision
+        #opt_l.xtol_rel = 1e-6 #todo precision        
+        opt_l.xtol_rel = 1e-4 #todo precision
         opt_c.local_optimizer = opt_l
         
-        # Lower bound of vec_c[i]
-        opt_c.min_objective = (par, grad) -> f1(par, grad, i)
-        lb, par_95, err_95 = optimize(opt_c, par_maxll)
-        mat_par_95[i, :] = par_95
-        # Upper bound of vec_c[i]
-        opt_c.min_objective = (par, grad) -> f2(par, grad, i)
-        ub, par_95, err_95 = optimize(opt_c, par_maxll)
-        mat_par_95[num_subjects + i, :] = par_95
-        for j in 1:num_windows
-            # Lower bound of vec_k[i] for jth window
-            opt_c.min_objective = (par, grad) ->
-                f1(par, grad, j * num_subjects + i)
-            lb, par_95, err_95 = optimize(opt_c, par_maxll)
-            mat_par_95[num_subjects * 2 + num_subjects*2*(j-1)+2*i-1,:] = par_95
-            
-            # Upper bound of vec_k[i] for jth window        
-            opt_c.min_objective = (par, grad) ->
-                f2(par, grad, j * num_subjects + i)
-            ub, par_95, err_95 = optimize(opt_c, par_maxll)
-            mat_par_95[num_subjects * 2 + num_subjects*2*(j-1)+2*i, :] = par_95
+        if(i % 2 == 1) # Lower bound
+            opt_c.min_objective = (par, grad) -> f1(par, grad, i)
+        else # Upper bound
+            opt_c.min_objective = (par, grad) -> f2(par, grad, i)
         end
-        # Lower bound of vec_qt_[i]    
-        opt_c.min_objective = (par, grad) ->
-            f1(par, grad, num_subjects * (num_windows + 1) +i)
         lb, par_95, err_95 = optimize(opt_c, par_maxll)
-        mat_par_95[num_subjects * 2 + num_subjects * num_windows * 2 + i, :] = par_95
-        # Upper bound of vec_qt_[i]
-        opt_c.min_objective = (par, grad) ->
-            f2(par, grad, num_subjects * (num_windows + 1) +i)
-        ub, par_95, err_95 = optimize(opt_c, par_maxll)
-        mat_par_95[num_subjects * 2 + num_subjects * num_windows * 2 + num_subjects + i, :] = par_95
-        println("Calculation for CIs of " * string(subjects[i]) * " finished")
+        mat_95CI[i, :] = par_95
+        println("Calculation of " * string(i) * " th loop finished")
     end
-    
-    df_95 = DataFrame()
-    map(x -> df_95[!,"t_" * string(x)] = repeat([dict_first[x]],num_subjects * (2 + 2 * num_windows + 2)),subjects)
-    map(x -> df_95[!,"c_" * string(x)] = mat_par_95[:,dict_index[x]], subjects)
-    
+end
+
+df_estimates = DataFrame()
+df_estimates[!,"variant"] = Vector{Symbol}()
+df_estimates[!,"date"] = Vector{Date}()
+df_estimates[!,"c"] = Vector{Float64}()
+df_estimates[!,"c_lb"] = Vector{Float64}()
+df_estimates[!,"c_ub"] = Vector{Float64}()
+if num_windows > 1
+    for w in 1:num_windows
+        df_estimates[!,"k_w"*string(w)] = Vector{Float64}()
+        df_estimates[!,"k_w"*string(w)*"_lb"] = Vector{Float64}()
+        df_estimates[!,"k_w"*string(w)*"_ub"] = Vector{Float64}()
+    end
+else
+    df_estimates[!,"k"] = Vector{Float64}()
+    df_estimates[!,"k_lb"] = Vector{Float64}()
+    df_estimates[!,"k_ub"] = Vector{Float64}()
+end
+df_estimates[!,"qt"] = Vector{Float64}()
+df_estimates[!,"qt_lb"] = Vector{Float64}()
+df_estimates[!,"qt_ub"] = Vector{Float64}()
+
+for j in 1:num_subjects
+    row=vcat(subjects[j],
+             dict_first[subjects[j]],
+             par_maxll[j], #c
+             minimum(mat_95CI[:,j]), #lb
+             maximum(mat_95CI[:,j])) #ub
     if num_windows > 1
         for w in 1:num_windows
-            map(x -> df_95[!,"k_" * string(x) * "_w" * string(w)]
-                = mat_par_95[:,dict_index[x] + num_subjects * w],subjects)
+            row=vcat(row,par_maxll[num_subjects+(w-1)*num_subjects + j],#k
+                     minimum(mat_95CI[:,num_subjects+(w-1)*num_subjects+j]),#lb
+                     maximum(mat_95CI[:,num_subjects+(w-1)*num_subjects+j]))#ub
         end
+        row=vcat(row,par_maxll[(1+num_windows)*num_subjects+j], #qt
+                 minimum(mat_95CI[:,(1+num_windows)*num_subjects+j]),#lb
+                 maximum(mat_95CI[:,(1+num_windows)*num_subjects+j]))#ub
     else
-        map(x -> df_95[!,"k_" * string(x)]
-            = mat_par_95[:,dict_index[x]+num_subjects],subjects)
+        row=vcat(row,par_maxll[num_subjects+j], #k
+                 minimum(mat_95CI[:,num_subjects + j]), #lb
+                 maximum(mat_95CI[:,num_subjects + j])) #ub
+        row=vcat(row,par_maxll[2 * num_subjects+j], #qt
+                 minimum(mat_95CI[:,2 * num_subjects + j]), #lb
+                 maximum(mat_95CI[:,2 * num_subjects + j])) #ub 
     end
-    map(x -> df_95[!,"qt_"* string(x)] = mat_par_95[:,dict_index[x]+num_subjects*(num_windows+1)], subjects)
-    CSV.write("estimates_95CI.csv", df_95)
+    push!(df_estimates,row)
 end
+
+CSV.write("estimates.csv", df_estimates)
