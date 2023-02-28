@@ -1,0 +1,21 @@
+[--alpha, -a]
+--baseline, -b
+--count_file, -c
+(--predict, -d)
+--end, -e
+--estimate_gt, -g
+(--conf_int, -i)
+--subjects, -j
+(--kappa, -k)
+--lenght_gt, -l
+(--mean_gt, -m)
+--precision, -p
+(--frequency, -q)
+--start, -s
+--theta, -t
+--unit, -u
+(--var_gt, -v)
+--breaks, -w
+
+
+
