@@ -169,7 +169,6 @@ end
 #Load in specified matrix file
 println("Loading counts")
 df_count = DataFrame(CSV.File(matrixFile))
-@show(df_count)
 
 #Check whether the first column is a vector of dates
 if(typeof(df_count[:,1])!=Vector{Date})
@@ -231,6 +230,9 @@ if(start_date!="")
 else
     const t_start = minimum(df_count.date)
 end
+
+#Remove unnecessary columns
+@show(df_count)
 
 #Record the date of variant's first observation during the period 
 dict_first = Dict{Symbol,Date}()
@@ -333,7 +335,7 @@ println(err)
 
 #Confidence Intervals
 function constr(vec_par, vec_grad)
-    -1.92 - nmaxll + negLogL(vec_par, vec_grad);
+    -quantile(Chisq(1),0.95)/2 - nmaxll + negLogL(vec_par, vec_grad);
 end
 
 function f1(par, grad,i)
@@ -353,7 +355,8 @@ end
 if estimate_CI
     mat_95CI = Matrix{Float64}(undef,
                                  num_subjects * (2 + 2 * num_windows + 2),
-                                 num_subjects * (1 + 1 * num_windows + 1))
+                               num_subjects * (1 + 1 * num_windows + 1))
+    err_95CI = Vector{Symbol}(undef,num_subjects * (2 + 2 * num_windows + 2))
     
     println("Calculating 95% confidence intervals (CIs)")
     
@@ -370,20 +373,23 @@ if estimate_CI
         inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
         
         opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-        #opt_l.xtol_rel = 1e-6 #todo precision        
-        opt_l.xtol_rel = 1e-4 #todo precision
+        opt_l.xtol_rel = 1e-6 #todo precision 
+        #opt_l.xtol_rel = 1e-4 #todo precision
         opt_c.local_optimizer = opt_l
         
         if(i % 2 == 1) # Lower bound
-            opt_c.min_objective = (par, grad) -> f1(par, grad, i)
+            opt_c.min_objective = (par, grad) -> f1(par, grad, Int64((i+1)/2))
         else # Upper bound
-            opt_c.min_objective = (par, grad) -> f2(par, grad, i)
+            opt_c.min_objective = (par, grad) -> f2(par, grad, Int64(i/2))
         end
         lb, par_95, err_95 = optimize(opt_c, par_maxll)
         mat_95CI[i, :] = par_95
+        err_95CI[i] = err_95
         println("Calculation of " * string(i) * " th loop finished")
     end
 end
+
+println(err_95CI)
 
 df_estimates = DataFrame()
 df_estimates[!,"variant"] = Vector{Symbol}()
