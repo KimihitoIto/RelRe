@@ -192,11 +192,12 @@ println("\nBaseline")
 println(baseline)
 
 #Specify variants as all, and remove baseline from subjects
-variants = propertynames(df_count)[2:size(df_count,2)]
 if(arg_subjects == [])
+    variants = propertynames(df_count)[2:size(df_count,2)]
     subjects = filter(x -> x!= baseline, variants)
 else
     subjects = arg_subjects # elements need to be checked
+    variants = vcat(subjects,baseline)
 end
 println("\nSubject clades")
 const num_subjects = length(subjects)
@@ -223,10 +224,6 @@ else
     exit()
 end
 
-#Record the date of variant's first observation
-dict_first = Dict{Symbol,Date}()
-map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
-
 #Remove data before start date
 if(start_date!="")
     const t_start = Date(start_date)
@@ -234,6 +231,12 @@ if(start_date!="")
 else
     const t_start = minimum(df_count.date)
 end
+
+#Record the date of variant's first observation during the period 
+dict_first = Dict{Symbol,Date}()
+map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
+
+
 
 println("\nTime range of analysis")
 println("Start: " * Dates.format(t_start, ISODateFormat))
