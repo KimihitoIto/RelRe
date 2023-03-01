@@ -4,7 +4,6 @@
 (--predict, -d)
 --end, -e
 --estimate_gt, -g
-(--conf_int, -i)
 --subjects, -j
 (--kappa, -k)
 --lenght_gt, -l

@@ -63,32 +63,21 @@ const breaks = parsed_args["breaks"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
 
+const del_t = 0.5
+
 #Generation time distribution
-function g2(a, c_GT)
-    if(a < 1 || a > len_tr )
+function gt(a, c_GT)
+    if(a < del_t || a > len_tr )
         return 0
     else
         return (cdf(Gamma(alpha, c_GT * theta), a) -
-            cdf(Gamma(alpha, c_GT * theta), a-1))/
+            cdf(Gamma(alpha, c_GT * theta), a - del_t))/
             cdf(Gamma(alpha, c_GT * theta),len_tr)
     end
 end
 
-#Generation time distribution (old version)
-function g1(a, c_GT)
-    if(a == 1)
-        return cdf(Gamma(alpha, c_GT * theta), 2)
-    elseif(a == len_tr)
-        return 1 - cdf(Gamma(alpha, c_GT * theta), a)
-    else
-        return cdf(Gamma(alpha, c_GT * theta), a + 1) -
-            cdf(Gamma(alpha, c_GT * theta), a)
-    end
-end
-
-function pmf_g(c_GT)
-    return map(v -> g2(v,c_GT), 1:len_tr)
-    #return map(v -> g1(v,c_GT), 1:len_tr)
+function pmf_gt(c_GT)
+    return map(v -> gt(v,c_GT), del_t:del_t:len_tr)
 end
 
 #Renewal model of variant requencies
@@ -101,14 +90,15 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     @assert length(vec_t) == num_subjects
     
     duration = (t_e - t_s).value + 1
-
-    g = Matrix{Float64}(undef, l, num_subjects + 1)
-    for j in 1:num_subjects
-        g[:,j] = pmf_g(vec_c[j])
-    end
-    g[: , num_subjects + 1] = pmf_g(1.0)
+    #todo: calculate l automatically
     
-    q = Matrix{Float64}(undef, duration, num_subjects + 1)
+    g = Matrix{Float64}(undef, length(del_t:del_t:l), num_subjects + 1)
+    for j in 1:num_subjects
+        g[:,j] = pmf_gt(vec_c[j])
+    end
+    g[: , num_subjects + 1] = pmf_gt(1.0)
+    
+    q = Matrix{Float64}(undef, length(del_t:del_t:duration), num_subjects + 1)
     for j in 1:num_subjects
         if vec_t[j] <= t_s
             q[1,j] = vec_qt[j]
@@ -126,8 +116,8 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     
     vec_sum_nmr=Vector{Float64}(undef, num_subjects)
     
-    for i in 2:duration
-        t = t_s + Day(i-1)
+    for i in 2:length(del_t:del_t:duration)
+        t = t_s + Day(Int64(floor((del_t:del_t:duration)[i])))
         window_index = 1
         for b in vec_b
             if t < b
@@ -140,8 +130,8 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
         
         fill!(vec_sum_nmr, 0.0)
         sum_dnm = 0.0
-        for k in 1:l
-            t_k = max(1, (t - Day(k) - t_s).value + 1)
+        for k in 1:length(del_t:del_t:l)#here
+            t_k = max(1, i - k)
             vec_sum_nmr += vec(g[k, 1:num_subjects]).* subvec_k .* vec(q[t_k, 1:num_subjects])
             sum_dnm += g[k, num_subjects + 1] * q[t_k, num_subjects + 1] +
                 sum(vec(g[k, 1:num_subjects]).* subvec_k .* vec(q[t_k, 1:num_subjects]))
@@ -158,7 +148,12 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
             q[i, num_subjects + 1] = 1 - sum_q_subjects
         end
     end
-    return q
+    q2 = Matrix{Float64}(undef, duration, num_subjects + 1)
+    for i in 1:duration
+        row = minimum(findall(y -> y>=i, del_t:del_t:duration))
+        q2[i, :] = q[row,:]
+    end
+    return q2
 end
 
 #Main
