@@ -44,8 +44,6 @@ s = ArgParseSettings()
     required = true
     "--estimate_GT", "-g"
     action = :store_true
-    "--estimate_CI", "-i" # no need. set always true
-    action = :store_true
 end
 
 parsed_args = parse_args(ARGS, s)
@@ -64,7 +62,6 @@ const unit = parsed_args["unit"]
 const breaks = parsed_args["breaks"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
-const estimate_CI = parsed_args["estimate_CI"]
 
 #Generation time distribution
 function g2(a, c_GT)
@@ -238,8 +235,6 @@ end
 dict_first = Dict{Symbol,Date}()
 map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
 
-
-
 println("\nTime range of analysis")
 println("Start: " * Dates.format(t_start, ISODateFormat))
 println("End: " * Dates.format(t_end, ISODateFormat))
@@ -255,7 +250,7 @@ end
 
 const num_windows = length(breaks) + 1 
 if (num_windows > 1)
-    println("The analysis period is divided into "
+    println("The analysis period was divided into "
             * string(num_windows) * " windows.")
 end
 
@@ -352,41 +347,38 @@ function f2(par, grad,i)
     -par[i]
 end
 
-if estimate_CI
-    mat_95CI = Matrix{Float64}(undef,
-                                 num_subjects * (2 + 2 * num_windows + 2),
-                               num_subjects * (1 + 1 * num_windows + 1))
-    err_95CI = Vector{Symbol}(undef,num_subjects * (2 + 2 * num_windows + 2))
+mat_95CI = Matrix{Float64}(undef,
+                           num_subjects * (2 + 2 * num_windows + 2),
+                           num_subjects * (1 + 1 * num_windows + 1))
+err_95CI = Vector{Symbol}(undef,num_subjects * (2 + 2 * num_windows + 2))
+
+println("Calculating 95% confidence intervals (CIs)")
+Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
+    println("Thread " * string(Threads.threadid()) * " is working on the " *
+        string(i) * " th loop of the CI calculation")
     
-    println("Calculating 95% confidence intervals (CIs)")
+    opt_c = Opt(:AUGLAG, length(par_maxll))
+    opt_c.lower_bounds = par_lb
+    opt_c.upper_bounds = par_ub
+    opt_c.maxeval = 500000
+    opt_c.ftol_abs = ftol_prec
     
-    Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
-        println("Thread " * string(Threads.threadid()) * " is working on " *
-            string(i) * " th loop of the CI calculation")
-        
-        opt_c = Opt(:AUGLAG, length(par_maxll))
-        opt_c.lower_bounds = par_lb
-        opt_c.upper_bounds = par_ub
-        opt_c.maxeval = 500000
-        opt_c.ftol_abs = ftol_prec
-        
-        inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
-        
-        opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-        opt_l.xtol_rel = 1e-6 #todo precision 
-        #opt_l.xtol_rel = 1e-4 #todo precision
-        opt_c.local_optimizer = opt_l
-        
-        if(i % 2 == 1) # Lower bound
-            opt_c.min_objective = (par, grad) -> f1(par, grad, Int64((i+1)/2))
-        else # Upper bound
-            opt_c.min_objective = (par, grad) -> f2(par, grad, Int64(i/2))
-        end
-        lb, par_95, err_95 = optimize(opt_c, par_maxll)
-        mat_95CI[i, :] = par_95
-        err_95CI[i] = err_95
-        println("Calculation of " * string(i) * " th loop finished")
+    inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
+    
+    opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
+    #opt_l.xtol_rel = 1e-6 #todo precision 
+    opt_l.xtol_rel = 1e-4 #todo precision
+    opt_c.local_optimizer = opt_l
+    
+    if(i % 2 == 1) # Lower bound
+        opt_c.min_objective = (par, grad) -> f1(par, grad, Int64((i+1)/2))
+    else # Upper bound
+        opt_c.min_objective = (par, grad) -> f2(par, grad, Int64(i/2))
     end
+    lb, par_95, err_95 = optimize(opt_c, par_maxll)
+    mat_95CI[i, :] = par_95
+    err_95CI[i] = err_95
+    println("Calculation of the " * string(i) * " th loop finished")
 end
 
 println(err_95CI)
