@@ -18,6 +18,9 @@ s = ArgParseSettings()
     "--end", "-e"
     arg_type = String
     default = ""
+    "--future", "-f"
+    arg_type = Int64
+    default = 0
     "--baseline", "-b"
     arg_type = Symbol
     required = true
@@ -48,6 +51,8 @@ s = ArgParseSettings()
     arg_type = Symbol
     default = :D
     required = true
+    "--frequency", "-q"
+    action = :store_true
     "--estimate_GT", "-g"
     action = :store_true
     "--estimate_CI", "-c"
@@ -64,6 +69,7 @@ const ftol_prec = parsed_args["precision"]
 const baseline = parsed_args["baseline"]
 const start_date = parsed_args["start"]
 const end_date = parsed_args["end"]
+const days_to_predict = parsed_args["future"]
 const len_tr = parsed_args["len"]
 const alpha = parsed_args["alpha"]
 const theta = parsed_args["theta"]
@@ -72,6 +78,7 @@ const breaks = parsed_args["breaks"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
 const estimate_CI = parsed_args["estimate_CI"]
+const calculate_q = parsed_args["frequency"]
 const delta = parsed_args["delta"]
 
 #Generation time distribution
@@ -128,7 +135,7 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     for i in 2:length(delta:delta:duration)
         t = t_s + Day(Int64(floor((delta:delta:duration)[i])))
         window_index = 1
-        for b in vec_b
+        for b in vec_b # the first days of next windows
             if t < b
                 break
             else
@@ -157,12 +164,12 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
             q[i, num_subjects + 1] = 1 - sum_q_subjects
         end
     end
-    q2 = Matrix{Float64}(undef, duration, num_subjects + 1)
+    q_day = Matrix{Float64}(undef, duration, num_subjects + 1)
     for i in 1:duration
-        row = minimum(findall(y -> y>=i, delta:delta:duration))
-        q2[i, :] = q[row,:]
+        row = minimum(findall(y -> y>=(i-1), 0:delta:duration))
+        q_day[i, :] = q[row,:]
     end
-    return q2
+    return q_day
 end
 
 #Main
@@ -357,7 +364,7 @@ mat_95CI = Matrix{Float64}(undef,
 err_95CI = Vector{Symbol}(undef,num_subjects * (2 + 2 * num_windows + 2))
 
 if estimate_CI
-    println("Calculating 95% confidence intervals (CIs)")
+    println("\nCalculating 95% confidence intervals (CIs)")
     Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
         println("Thread " * string(Threads.threadid()) * " is working on the " *
             string(i) * " th loop of the CI calculation")
@@ -452,9 +459,180 @@ for j in 1:num_subjects
 end
 
 if outfile_prefix==""
-    outfile = "estimates.csv"
+    outfile_estimate = "estimates.csv"
 else
-    outfile = outfile_prefix * "_estimates.csv"
+    outfile_estimate = outfile_prefix * "_estimates.csv"
 end
 
-CSV.write(outfile, df_estimates)
+CSV.write(outfile_estimate, df_estimates)
+
+#Calculate Trajectory
+
+if estimate_GT
+    freedom = num_subjects * (1 + num_windows + 1)
+else 
+    freedom = num_subjects * (num_windows + 1)
+end
+
+function constr_trajectory(vec_par, vec_grad)
+    -quantile(Chisq(freedom),0.95)/2 - nmaxll + negLogL(vec_par, vec_grad);
+end
+
+mat_95CR = Matrix{Float64}(undef,
+                           num_subjects * (2 + 2 * num_windows + 2),
+                           num_subjects * (1 + 1 * num_windows + 1))
+err_95CR = Vector{Symbol}(undef,num_subjects * (2 + 2 * num_windows + 2))
+
+if calculate_q
+    println("\nCalculating trajectory")
+    vec_c_ml = par_maxll[1:num_subjects] #c
+    vec_k_ml = par_maxll[num_subjects+1:num_subjects*(1+num_windows)] #k
+    vec_qt_ml = par_maxll[num_subjects*(1+num_windows)+1:num_subjects*(2+num_windows)] #qt
+    vec_t_ml = map(v -> dict_first[v], subjects)
+    vec_b_ml = breaks
+
+    t_future = t_end + Day(days_to_predict)
+    q_ml = model_q(vec_c_ml, vec_k_ml, vec_qt_ml, vec_t_ml, vec_b_ml,
+                   t_start, t_future, len_tr)
+    q_lb = q_ml
+    q_ub = q_ml
+    vec_average_c_ml = q_ml * vcat(vec_c_ml, 1.0)
+    vec_average_c_lb = vec_average_c_ml
+    vec_average_c_ub = vec_average_c_ml
+
+    if num_windows > 1
+        vec_average_k_ml = Vector{Float64}(undef,0)
+        row_from = 1
+        for w in 1:length(breaks)
+            local subvec_k = map(j -> vec_k_ml[(w - 1) * num_subjects + j],
+                           1:num_subjects)
+            global row_to = (breaks[w]-t_start).value
+            global vec_average_k_ml =
+                vcat(vec_average_k_ml,
+                     q_ml[row_from:row_to,:] * vcat(subvec_k, 1.0))
+            global row_from = row_to +1
+        end
+        row_to= (t_future - t_start).value + 1
+        local subvec_k = map(j -> vec_k_ml[length(breaks) * num_subjects + j],
+                             1:num_subjects)
+        vec_average_k_ml = vcat(vec_average_k_ml,
+                                q_ml[row_from:row_to,:] * vcat(subvec_k, 1.0))        else
+        vec_average_k_ml = q_ml * vcat(vec_k_ml, 1.0)
+    end
+    vec_average_k_lb = vec_average_k_ml
+    vec_average_k_ub = vec_average_k_ml
+        
+    if estimate_CI
+        println("Calculating 95% confidence region (CR)")
+        Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
+            println("Thread " * string(Threads.threadid()) *
+                " is working on the " *
+                string(i) * " th loop of the CR calculation")
+            opt_c = Opt(:AUGLAG, length(par_maxll))
+            opt_c.lower_bounds = par_lb
+            opt_c.upper_bounds = par_ub
+            opt_c.maxeval = 500000
+            opt_c.ftol_abs = ftol_prec
+            
+            inequality_constraint!(opt_c, (par,grad) -> constr_trajectory(par,grad),
+                                   1e-6)
+            
+            opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
+            #opt_l.xtol_rel = 1e-6 #todo precision 
+            opt_l.xtol_rel = 1e-4 #todo precision
+            opt_c.local_optimizer = opt_l
+            
+            if(i % 2 == 1) # Lower bound
+                opt_c.min_objective = (par, grad) -> f1(par, grad, Int64((i+1)/2))
+            else # Upper bound
+                opt_c.min_objective = (par, grad) -> f2(par, grad, Int64(i/2))
+            end
+            lb, par_95, err_95 = optimize(opt_c, par_maxll)
+            mat_95CR[i, :] = par_95
+            err_95CR[i] = err_95
+            println("Calculation of the " * string(i) * " th loop finished")
+        end
+        println(err_95CR)
+
+        for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
+            par_cr = mat_95CR[i, :]
+            vec_c_cr = par_cr[1:num_subjects] #c
+            vec_k_cr = par_cr[num_subjects+1:num_subjects*(1+num_windows)] #k
+            vec_qt_cr= par_cr[num_subjects*(1+num_windows)+1:num_subjects*(2+num_windows)] #qt
+            vec_t_cr = map(v -> dict_first[v], subjects)
+            vec_b_cr = breaks
+
+            q_cr = model_q(vec_c_cr, vec_k_cr, vec_qt_cr, vec_t_cr, vec_b_cr,
+                           t_start, t_future, len_tr)
+            local vec_average_c_cr = q_cr * vcat(vec_c_cr, 1.0)
+
+            if num_windows > 1
+                vec_average_k_cr = Vector{Float64}(undef,0)
+                global row_from = 1
+                for w in 1:length(breaks)
+                    local subvec_k =
+                        map(j -> vec_k_cr[(w - 1) * num_subjects + j],
+                            1:num_subjects)
+                    global row_to = (breaks[w]-t_start).value
+                    vec_average_k_cr =
+                        vcat(vec_average_k_cr,
+                             q_cr[row_from:row_to,:] * vcat(subvec_k, 1.0))
+                    global row_from = row_to +1
+                end
+                global row_to= (t_future - t_start).value + 1
+                local subvec_k =
+                    map(j -> vec_k_cr[length(breaks) * num_subjects + j],
+                        1:num_subjects)
+                vec_average_k_cr =
+                    vcat(vec_average_k_cr,
+                         q_cr[row_from:row_to,:] * vcat(subvec_k, 1.0))
+            else
+                vec_average_k_cr = q_cr * vcat(vec_k_cr, 1.0)
+            end
+            
+            global q_lb = min.(q_lb, q_cr)
+            global q_ub = max.(q_ub, q_cr)
+            global vec_average_c_lb = min.(vec_average_c_lb, vec_average_c_cr)
+            global vec_average_c_ub = max.(vec_average_c_ub, vec_average_c_cr)
+            global vec_average_k_lb = min.(vec_average_k_lb, vec_average_k_cr)
+            global vec_average_k_ub = max.(vec_average_k_ub, vec_average_k_cr)
+        end
+    end
+    println("\nWriting frequencies")
+    df_freq = DataFrame()
+    df_freq[!,"date"] = collect(t_start:Day(1):t_future)
+    map(x -> df_freq[!,string(x)] = q_ml[:,dict_index[x]], subjects)
+    df_freq[!,string(baseline)] = q_ml[:,length(subjects)+1]
+    df_freq[!,"average_c"] = vec_average_c_ml
+    df_freq[!,"average_k"] = vec_average_k_ml
+    if estimate_CI
+        map(x -> df_freq[!,string(x) * "_lb"] = q_lb[:,dict_index[x]], subjects)
+        map(x -> df_freq[!,string(x) * "_ub"] = q_ub[:,dict_index[x]], subjects)
+        df_freq[!,string(baseline) * "_lb"] = q_lb[:,length(subjects)+1]
+        df_freq[!,string(baseline) * "_ub"] = q_ub[:,length(subjects)+1]
+        df_freq[!,"average_c_lb"] = vec_average_c_lb
+        df_freq[!,"average_c_ub"] = vec_average_c_ub
+        df_freq[!,"average_k_lb"] = vec_average_k_lb
+        df_freq[!,"average_k_ub"] = vec_average_k_ub
+    end
+    if outfile_prefix==""
+        outfile_frequency = "frequencies.csv"
+    else
+        outfile_frequency = outfile_prefix * "_frequencies.csv"
+    end
+    CSV.write(outfile_frequency, df_freq)
+end
+
+df_loglikelihood = DataFrame()
+df_loglikelihood[!,"maxll"] = [-nmaxll]
+df_loglikelihood[!,"num_pars"] = [freedom]
+df_loglikelihood[!,"AIC"] = [2*freedom + 2*nmaxll]
+
+if outfile_prefix==""
+    outfile_loglikelihood = "loglikelihood.csv"
+else
+    outfile_loglikelihood = outfile_prefix * "_loglikelihood.csv"
+end
+CSV.write(outfile_loglikelihood, df_loglikelihood)
+
+println("done")

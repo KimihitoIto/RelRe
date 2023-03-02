@@ -2,14 +2,14 @@
 --baseline, -b
 --ci, -c
 --in, -i
-*(--predict, -d)
+--future, -f
 --end, -e
 --estimate_gt, -g
 --subjects, -j
 /[--lenght_gt, -l]
 *(--mean_gt, -m)
 --precision, -p
-*(--frequency, -q)
+--frequency, -q
 --start, -s
 --theta, -t
 --unit, -u
