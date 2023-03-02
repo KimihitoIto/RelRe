@@ -1,20 +1,23 @@
-[--alpha, -a]
+--alpha, -a
 --baseline, -b
---count_file, -c
-(--predict, -d)
+/[--count_file, -c]
+*(--ci, -c)
+*(--in, -i)
+*(--predict, -d)
 --end, -e
 --estimate_gt, -g
 --subjects, -j
-(--kappa, -k)
---lenght_gt, -l
-(--mean_gt, -m)
+/[--lenght_gt, -l]
+*(--mean_gt, -m)
 --precision, -p
-(--frequency, -q)
+*(--frequency, -q)
 --start, -s
 --theta, -t
 --unit, -u
-(--var_gt, -v)
+*(--var_gt, -v)
 --breaks, -w
+*(--out, -o)
+
 
 
 
