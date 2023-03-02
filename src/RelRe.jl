@@ -6,9 +6,12 @@ using CSV, Dates, DataFrames, Distributions, NLopt, ArgParse
 #Pull in information from command line arguments
 s = ArgParseSettings()
 @add_arg_table s begin
-    "--count_file", "-c"
+    "--in", "-i"
     arg_type = String
     required = true
+    "--out", "-o"
+    arg_type = String
+    default = ""
     "--start", "-s"
     arg_type = String
     default = ""
@@ -38,11 +41,16 @@ s = ArgParseSettings()
     "--theta", "-t"      # TODO: estimate from mean and var
     arg_type = Float64
     default = 2.32 # use 0.60 for flu
+    "--delta", "-d"
+    arg_type = Float64
+    default = 0.5
     "--unit", "-u"
     arg_type = Symbol
     default = :D
     required = true
     "--estimate_GT", "-g"
+    action = :store_true
+    "--estimate_CI", "-c"
     action = :store_true
 end
 
@@ -50,8 +58,9 @@ parsed_args = parse_args(ARGS, s)
 @show parsed_args
 
 #Init variables
+const infile = parsed_args["in"]
+const outfile_prefix = parsed_args["out"]
 const ftol_prec = parsed_args["precision"]
-const matrixFile = parsed_args["count_file"]
 const baseline = parsed_args["baseline"]
 const start_date = parsed_args["start"]
 const end_date = parsed_args["end"]
@@ -62,22 +71,22 @@ const unit = parsed_args["unit"]
 const breaks = parsed_args["breaks"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
-
-const del_t = 0.5
+const estimate_CI = parsed_args["estimate_CI"]
+const delta = parsed_args["delta"]
 
 #Generation time distribution
 function gt(a, c_GT)
-    if(a < del_t || a > len_tr )
+    if(a < delta || a > len_tr )
         return 0
     else
         return (cdf(Gamma(alpha, c_GT * theta), a) -
-            cdf(Gamma(alpha, c_GT * theta), a - del_t))/
+            cdf(Gamma(alpha, c_GT * theta), a - delta))/
             cdf(Gamma(alpha, c_GT * theta),len_tr)
     end
 end
 
 function pmf_gt(c_GT)
-    return map(v -> gt(v,c_GT), del_t:del_t:len_tr)
+    return map(v -> gt(v,c_GT), delta:delta:len_tr)
 end
 
 #Renewal model of variant requencies
@@ -92,13 +101,13 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     duration = (t_e - t_s).value + 1
     #todo: calculate l automatically
     
-    g = Matrix{Float64}(undef, length(del_t:del_t:l), num_subjects + 1)
+    g = Matrix{Float64}(undef, length(delta:delta:l), num_subjects + 1)
     for j in 1:num_subjects
         g[:,j] = pmf_gt(vec_c[j])
     end
     g[: , num_subjects + 1] = pmf_gt(1.0)
     
-    q = Matrix{Float64}(undef, length(del_t:del_t:duration), num_subjects + 1)
+    q = Matrix{Float64}(undef, length(delta:delta:duration), num_subjects + 1)
     for j in 1:num_subjects
         if vec_t[j] <= t_s
             q[1,j] = vec_qt[j]
@@ -116,8 +125,8 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     
     vec_sum_nmr=Vector{Float64}(undef, num_subjects)
     
-    for i in 2:length(del_t:del_t:duration)
-        t = t_s + Day(Int64(floor((del_t:del_t:duration)[i])))
+    for i in 2:length(delta:delta:duration)
+        t = t_s + Day(Int64(floor((delta:delta:duration)[i])))
         window_index = 1
         for b in vec_b
             if t < b
@@ -130,7 +139,7 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
         
         fill!(vec_sum_nmr, 0.0)
         sum_dnm = 0.0
-        for k in 1:length(del_t:del_t:l)#here
+        for k in 1:length(delta:delta:l)#here
             t_k = max(1, i - k)
             vec_sum_nmr += vec(g[k, 1:num_subjects]).* subvec_k .* vec(q[t_k, 1:num_subjects])
             sum_dnm += g[k, num_subjects + 1] * q[t_k, num_subjects + 1] +
@@ -150,7 +159,7 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     end
     q2 = Matrix{Float64}(undef, duration, num_subjects + 1)
     for i in 1:duration
-        row = minimum(findall(y -> y>=i, del_t:del_t:duration))
+        row = minimum(findall(y -> y>=i, delta:delta:duration))
         q2[i, :] = q[row,:]
     end
     return q2
@@ -160,7 +169,7 @@ end
 
 #Load in specified matrix file
 println("Loading counts")
-df_count = DataFrame(CSV.File(matrixFile))
+df_count = DataFrame(CSV.File(infile))
 
 #Check whether the first column is a vector of dates
 if(typeof(df_count[:,1])!=Vector{Date})
@@ -347,82 +356,105 @@ mat_95CI = Matrix{Float64}(undef,
                            num_subjects * (1 + 1 * num_windows + 1))
 err_95CI = Vector{Symbol}(undef,num_subjects * (2 + 2 * num_windows + 2))
 
-println("Calculating 95% confidence intervals (CIs)")
-Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
-    println("Thread " * string(Threads.threadid()) * " is working on the " *
-        string(i) * " th loop of the CI calculation")
-    
-    opt_c = Opt(:AUGLAG, length(par_maxll))
-    opt_c.lower_bounds = par_lb
-    opt_c.upper_bounds = par_ub
-    opt_c.maxeval = 500000
-    opt_c.ftol_abs = ftol_prec
-    
-    inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
-    
-    opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-    #opt_l.xtol_rel = 1e-6 #todo precision 
-    opt_l.xtol_rel = 1e-4 #todo precision
-    opt_c.local_optimizer = opt_l
-    
-    if(i % 2 == 1) # Lower bound
-        opt_c.min_objective = (par, grad) -> f1(par, grad, Int64((i+1)/2))
-    else # Upper bound
-        opt_c.min_objective = (par, grad) -> f2(par, grad, Int64(i/2))
+if estimate_CI
+    println("Calculating 95% confidence intervals (CIs)")
+    Threads.@threads for i in 1:(num_subjects * (2 + 2 * num_windows + 2))
+        println("Thread " * string(Threads.threadid()) * " is working on the " *
+            string(i) * " th loop of the CI calculation")
+        
+        opt_c = Opt(:AUGLAG, length(par_maxll))
+        opt_c.lower_bounds = par_lb
+        opt_c.upper_bounds = par_ub
+        opt_c.maxeval = 500000
+        opt_c.ftol_abs = ftol_prec
+        
+        inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
+        
+        opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
+        #opt_l.xtol_rel = 1e-6 #todo precision 
+        opt_l.xtol_rel = 1e-4 #todo precision
+        opt_c.local_optimizer = opt_l
+        
+        if(i % 2 == 1) # Lower bound
+            opt_c.min_objective = (par, grad) -> f1(par, grad, Int64((i+1)/2))
+        else # Upper bound
+            opt_c.min_objective = (par, grad) -> f2(par, grad, Int64(i/2))
+        end
+        lb, par_95, err_95 = optimize(opt_c, par_maxll)
+        mat_95CI[i, :] = par_95
+        err_95CI[i] = err_95
+        println("Calculation of the " * string(i) * " th loop finished")
     end
-    lb, par_95, err_95 = optimize(opt_c, par_maxll)
-    mat_95CI[i, :] = par_95
-    err_95CI[i] = err_95
-    println("Calculation of the " * string(i) * " th loop finished")
+    println(err_95CI)
 end
-
-println(err_95CI)
 
 df_estimates = DataFrame()
 df_estimates[!,"variant"] = Vector{Symbol}()
 df_estimates[!,"date"] = Vector{Date}()
 df_estimates[!,"c"] = Vector{Float64}()
-df_estimates[!,"c_lb"] = Vector{Float64}()
-df_estimates[!,"c_ub"] = Vector{Float64}()
+if estimate_CI
+    df_estimates[!,"c_lb"] = Vector{Float64}()
+    df_estimates[!,"c_ub"] = Vector{Float64}()
+end
 if num_windows > 1
     for w in 1:num_windows
         df_estimates[!,"k_w"*string(w)] = Vector{Float64}()
-        df_estimates[!,"k_w"*string(w)*"_lb"] = Vector{Float64}()
-        df_estimates[!,"k_w"*string(w)*"_ub"] = Vector{Float64}()
+        if estimate_CI
+            df_estimates[!,"k_w"*string(w)*"_lb"] = Vector{Float64}()
+            df_estimates[!,"k_w"*string(w)*"_ub"] = Vector{Float64}()
+        end
     end
 else
     df_estimates[!,"k"] = Vector{Float64}()
-    df_estimates[!,"k_lb"] = Vector{Float64}()
-    df_estimates[!,"k_ub"] = Vector{Float64}()
+    if estimate_CI
+        df_estimates[!,"k_lb"] = Vector{Float64}()
+        df_estimates[!,"k_ub"] = Vector{Float64}()
+    end
 end
 df_estimates[!,"qt"] = Vector{Float64}()
-df_estimates[!,"qt_lb"] = Vector{Float64}()
-df_estimates[!,"qt_ub"] = Vector{Float64}()
+if estimate_CI
+    df_estimates[!,"qt_lb"] = Vector{Float64}()
+    df_estimates[!,"qt_ub"] = Vector{Float64}()
+end    
 
 for j in 1:num_subjects
-    row=vcat(subjects[j],
-             dict_first[subjects[j]],
-             par_maxll[j], #c
-             minimum(mat_95CI[:,j]), #lb
-             maximum(mat_95CI[:,j])) #ub
+    row = vcat(subjects[j], dict_first[subjects[j]], par_maxll[j]) #c
+    if estimate_CI
+        row = vcat(row, minimum(mat_95CI[:,j]), maximum(mat_95CI[:,j])) #lb, ub
+    end
     if num_windows > 1
         for w in 1:num_windows
-            row=vcat(row,par_maxll[num_subjects+(w-1)*num_subjects + j],#k
-                     minimum(mat_95CI[:,num_subjects+(w-1)*num_subjects+j]),#lb
-                     maximum(mat_95CI[:,num_subjects+(w-1)*num_subjects+j]))#ub
+            row=vcat(row, par_maxll[num_subjects+(w-1)*num_subjects + j])#k
+            if estimate_CI
+                row=vcat(row,
+                         minimum(mat_95CI[:,num_subjects+(w-1)*num_subjects+j]),#lb
+                         maximum(mat_95CI[:,num_subjects+(w-1)*num_subjects+j]))#ub
+            end
         end
-        row=vcat(row,par_maxll[(1+num_windows)*num_subjects+j], #qt
-                 minimum(mat_95CI[:,(1+num_windows)*num_subjects+j]),#lb
-                 maximum(mat_95CI[:,(1+num_windows)*num_subjects+j]))#ub
+        row=vcat(row, par_maxll[(1+num_windows)*num_subjects+j]) #qt
+        if estimate_CI
+            row=vcat(row, minimum(mat_95CI[:,(1+num_windows)*num_subjects+j]),#lb
+                     maximum(mat_95CI[:,(1+num_windows)*num_subjects+j]))#ub
+        end
     else
-        row=vcat(row,par_maxll[num_subjects+j], #k
-                 minimum(mat_95CI[:,num_subjects + j]), #lb
-                 maximum(mat_95CI[:,num_subjects + j])) #ub
-        row=vcat(row,par_maxll[2 * num_subjects+j], #qt
-                 minimum(mat_95CI[:,2 * num_subjects + j]), #lb
-                 maximum(mat_95CI[:,2 * num_subjects + j])) #ub 
+        row=vcat(row, par_maxll[num_subjects+j])#k
+        if estimate_CI
+            row=vcat(row, minimum(mat_95CI[:,num_subjects + j]), #lb
+                     maximum(mat_95CI[:,num_subjects + j])) #ub
+        end
+        if estimate_CI
+            row=vcat(row, par_maxll[2 * num_subjects+j])#qt
+            row=vcat(row, minimum(mat_95CI[:,2 * num_subjects + j]), #lb
+                     maximum(mat_95CI[:,2 * num_subjects + j])) #ub
+        end
     end
     push!(df_estimates,row)
 end
 
-CSV.write("estimates.csv", df_estimates)
+if outfile_prefix==""
+    outfile = "estimates.csv"
+else
+    outfile = outfile_prefix * "_estimates.csv"
+end
+
+CSV.write(outfile, df_estimates)

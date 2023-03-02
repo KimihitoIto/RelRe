@@ -1,8 +1,7 @@
 --alpha, -a
 --baseline, -b
-/[--count_file, -c]
-*(--ci, -c)
-*(--in, -i)
+--ci, -c
+--in, -i
 *(--predict, -d)
 --end, -e
 --estimate_gt, -g
@@ -16,7 +15,7 @@
 --unit, -u
 *(--var_gt, -v)
 --breaks, -w
-*(--out, -o)
+--out, -o
 
 
 
