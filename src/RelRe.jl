@@ -449,8 +449,8 @@ for j in 1:num_subjects
             row=vcat(row, minimum(mat_95CI[:,num_subjects + j]), #lb
                      maximum(mat_95CI[:,num_subjects + j])) #ub
         end
+        row=vcat(row, par_maxll[2 * num_subjects+j])#qt
         if estimate_CI
-            row=vcat(row, par_maxll[2 * num_subjects+j])#qt
             row=vcat(row, minimum(mat_95CI[:,2 * num_subjects + j]), #lb
                      maximum(mat_95CI[:,2 * num_subjects + j])) #ub
         end
