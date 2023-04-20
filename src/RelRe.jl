@@ -57,6 +57,8 @@ s = ArgParseSettings()
     action = :store_true
     "--estimate_CI", "-c"
     action = :store_true
+    "--undetected", "-n"
+    action = :store_true
 end
 
 parsed_args = parse_args(ARGS, s)
@@ -78,6 +80,7 @@ const breaks = parsed_args["breaks"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
 const estimate_CI = parsed_args["estimate_CI"]
+const assume_undetected = parsed_args["undetected"]
 const calculate_q = parsed_args["frequency"]
 const delta = parsed_args["delta"]
 
@@ -174,6 +177,11 @@ end
 
 #Main
 
+#Check for values provided in program options
+if(delta > 1.0 || !isinteger(1.0/delta))
+    error("The delta should be a number obtained by deviding one by an integer")
+end
+
 #Load in specified matrix file
 println("Loading counts")
 df_count = DataFrame(CSV.File(infile))
@@ -244,7 +252,11 @@ end
 
 #Record the date of variant's first observation during the period 
 dict_first = Dict{Symbol,Date}()
-map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
+if assume_undetected
+    map(v -> dict_first[v]=t_start, variants)
+else
+    map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
+end
 
 println("\nTime range of analysis")
 println("Start: " * Dates.format(t_start, ISODateFormat))

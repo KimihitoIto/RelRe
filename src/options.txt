@@ -1,13 +1,16 @@
 --alpha, -a
 --baseline, -b
 --ci, -c
---in, -i
---future, -f
+--delta, -d
 --end, -e
+--future, -f
 --estimate_gt, -g
+--in, -i
 --subjects, -j
 /[--lenght_gt, -l]
 *(--mean_gt, -m)
+--undetected, -n
+--out, -o
 --precision, -p
 --frequency, -q
 --start, -s
@@ -15,7 +18,6 @@
 --unit, -u
 *(--var_gt, -v)
 --breaks, -w
---out, -o
 
 
 
