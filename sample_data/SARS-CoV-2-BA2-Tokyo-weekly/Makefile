@@ -21,3 +21,4 @@ clean:
 	rm -f frequencies.csv
 	rm -f loglikelihood.csv
 	rm -f frequencies.pdf
+	rm -f average_k.pdf

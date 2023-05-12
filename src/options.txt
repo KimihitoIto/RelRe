@@ -7,8 +7,8 @@
 --estimate_gt, -g
 --in, -i
 --subjects, -j
-/[--lenght_gt, -l]
-*(--mean_gt, -m)
+--lenght_gt, -l
+(--random, -M)
 --undetected, -n
 --out, -o
 --precision, -p
@@ -16,8 +16,6 @@
 --start, -s
 --theta, -t
 --unit, -u
-*(--var_gt, -v)
---breaks, -w
 
 
 
