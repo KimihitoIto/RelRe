@@ -8,7 +8,7 @@
 --in, -i
 --subjects, -j
 --lenght_gt, -l
-(--random, -M)
+--Dirichlet, -D
 --undetected, -n
 --out, -o
 --precision, -p

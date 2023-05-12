@@ -47,6 +47,8 @@ s = ArgParseSettings()
     arg_type = Symbol
     default = :D
     required = true
+    "--Dirichlet", "-D"
+    action = :store_true
     "--frequency", "-q"
     action = :store_true
     "--estimate_GT", "-g"
@@ -78,6 +80,7 @@ const estimate_CI = parsed_args["estimate_CI"]
 const assume_undetected = parsed_args["undetected"]
 const calculate_q = parsed_args["frequency"]
 const delta = parsed_args["delta"]
+const dirichlet = parsed_args["Dirichlet"]
 
 #Generation time distribution
 function gt(a, c_GT)
@@ -252,9 +255,19 @@ dates = df_count.date
 mat_obs = Matrix(filter(x->x.date in dates, df_count)[:,vcat(subjects,baseline)])
 
 function negLogL(par::Vector, grad::Vector)
+    if(dirichlet)
+        @assert length(par) == 3 * num_subjects + 1
+    else
+        @assert length(par) == 3 * num_subjects
+    end
+        
     vec_c = par[1:num_subjects]
     vec_k = par[num_subjects+1:num_subjects * 2]
     vec_qt = par[num_subjects*2+1:num_subjects*3]
+    if(dirichlet)
+        M = par[num_subjects * 3 + 1]
+    end
+    
     vec_t = map(v -> dict_first[v], subjects)
     try
         q = model_q(vec_c, vec_k, vec_qt, vec_t, t_start, t_end, len_tr)
@@ -270,7 +283,13 @@ function negLogL(par::Vector, grad::Vector)
             end
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
             obs = mat_obs[i,:]
-            sumll += logpdf(Multinomial(sum(obs), probs), obs)
+            
+            if(dirichlet)
+                alphas = probs * M
+                sumll += logpdf(DirichletMultinomial(sum(obs), alphas), obs)
+            else
+                sumll += logpdf(Multinomial(sum(obs), probs), obs)
+            end
         end
         if !isfinite(sumll)
             return floatmax(Float64)
@@ -302,9 +321,18 @@ vec_qt_start = fill(0.001,num_subjects)
 vec_qt_lb = fill(1.0e-10,num_subjects)
 vec_qt_ub = fill(1.0,num_subjects)
 
-par_start = vcat(vec_c_start, vec_k_start, vec_qt_start)
-par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb)
-par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub)
+if(dirichlet)
+    M_start = 10
+    M_lb = 1.0e-10
+    M_ub = 1.0e+5
+    par_start = vcat(vec_c_start, vec_k_start, vec_qt_start, M_start)
+    par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb, M_lb)
+    par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub, M_ub)
+else
+    par_start = vcat(vec_c_start, vec_k_start, vec_qt_start)
+    par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb)
+    par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub)
+end
 
 opt = Opt(:LN_SBPLX, length(par_start))
 opt.min_objective = (par, grad) -> negLogL(par, grad)
@@ -340,14 +368,27 @@ function f2(par, grad,i)
     -par[i]
 end
 
-mat_95CI = Matrix{Float64}(undef,
-                           num_subjects * (2 + 2 + 2),
-                           num_subjects * (1 + 1 + 1))
-err_95CI = Vector{Symbol}(undef,num_subjects * (2 + 2 + 2))
+if(dirichlet)
+    mat_95CI = Matrix{Float64}(undef,
+                               num_subjects * 6 + 2,
+                               num_subjects * 3 + 1)
+    err_95CI = Vector{Symbol}(undef,num_subjects * 6 + 2)
+else
+    mat_95CI = Matrix{Float64}(undef,
+                               num_subjects * 6,
+                               num_subjects * 3)
+    err_95CI = Vector{Symbol}(undef,num_subjects * 6)
+end
 
 if estimate_CI
     println("\nCalculating 95% confidence intervals (CIs)")
-    Threads.@threads for i in 1:(num_subjects * (2 + 2 + 2))
+    if(dirichlet)
+        num_loop = (num_subjects * 6 + 2)
+    else
+        num_loop = (num_subjects * 6)
+    end
+    
+    Threads.@threads for i in 1:num_loop
         println("Thread " * string(Threads.threadid()) * " is working on the " *
             string(i) * " th loop of the CI calculation")
         
@@ -396,7 +437,7 @@ df_estimates[!,"qt"] = Vector{Float64}()
 if estimate_CI
     df_estimates[!,"qt_lb"] = Vector{Float64}()
     df_estimates[!,"qt_ub"] = Vector{Float64}()
-end    
+end
 
 for j in 1:num_subjects
     row = vcat(subjects[j], dict_first[subjects[j]], par_maxll[j]) #c
@@ -425,22 +466,48 @@ end
 
 CSV.write(outfile_estimate, df_estimates)
 
+if(dirichlet)
+    df_M = DataFrame()
+    df_M[!,"M"] = [par_maxll[3 * num_subjects + 1]]
+    if estimate_CI
+        df_M[!,"M_lb"] = [minimum(mat_95CI[:,3 * num_subjects + 1])]
+        df_M[!,"M_ub"] = [maximum(mat_95CI[:,3 * num_subjects + 1])]
+    end
+    if outfile_prefix==""
+        outfile_M = "Dirichlet.csv"
+    else
+        outfile_M = outfile_prefix * "_Dirichlet.csv"
+    end
+    CSV.write(outfile_M, df_M)
+end
+
 #Calculate Trajectory
 
 if estimate_GT
-    freedom = num_subjects * (1 + 1 + 1)
+    freedom = num_subjects * 3
 else 
-    freedom = num_subjects * (1 + 1)
+    freedom = num_subjects * 2
+end
+
+if dirichlet
+    freedom = freedom + 1
 end
 
 function constr_trajectory(vec_par, vec_grad)
     -quantile(Chisq(freedom),0.95)/2 - nmaxll + negLogL(vec_par, vec_grad);
 end
 
-mat_95CR = Matrix{Float64}(undef,
-                           num_subjects * (2 + 2 + 2),
-                           num_subjects * (1 + 1 + 1))
-err_95CR = Vector{Symbol}(undef,num_subjects * (2 + 2 + 2))
+if(dirichlet)
+    mat_95CR = Matrix{Float64}(undef,
+                               num_subjects * 6 + 2,
+                               num_subjects * 3 + 1)
+    err_95CR = Vector{Symbol}(undef,num_subjects * 6 + 2)
+else
+    mat_95CR = Matrix{Float64}(undef,
+                               num_subjects * 6,
+                               num_subjects * 3)
+    err_95CR = Vector{Symbol}(undef,num_subjects * 6)
+end
 
 if calculate_q
     println("\nCalculating trajectory")
@@ -461,10 +528,15 @@ if calculate_q
     vec_average_k_ml = q_ml * vcat(vec_k_ml, 1.0)
     vec_average_k_lb = vec_average_k_ml
     vec_average_k_ub = vec_average_k_ml
-        
+    
     if estimate_CI
         println("Calculating 95% confidence region (CR)")
-        Threads.@threads for i in 1:(num_subjects * (2 + 2 + 2))
+        if(dirichlet)
+            num_loop = (num_subjects * 6 + 2)
+        else
+            num_loop = (num_subjects * 6)
+        end
+        Threads.@threads for i in 1:num_loop
             println("Thread " * string(Threads.threadid()) *
                 " is working on the " *
                 string(i) * " th loop of the CR calculation")
@@ -493,8 +565,7 @@ if calculate_q
             println("Calculation of the " * string(i) * " th loop finished")
         end
         println(err_95CR)
-
-        for i in 1:(num_subjects * (2 + 2 + 2))
+        for i in 1:num_loop
             par_cr = mat_95CR[i, :]
             vec_c_cr = par_cr[1 : num_subjects] #c
             vec_k_cr = par_cr[num_subjects+1 : num_subjects*2] #k
@@ -542,7 +613,7 @@ end
 df_loglikelihood = DataFrame()
 df_loglikelihood[!,"maxll"] = [-nmaxll]
 df_loglikelihood[!,"num_pars"] = [freedom]
-df_loglikelihood[!,"AIC"] = [2*freedom + 2*nmaxll]
+df_loglikelihood[!,"AIC"] = [2*nmaxll + 2*freedom]
 
 if outfile_prefix==""
     outfile_loglikelihood = "loglikelihood.csv"
