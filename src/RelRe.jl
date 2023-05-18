@@ -9,54 +9,72 @@ s = ArgParseSettings()
     "--in", "-i"
     arg_type = String
     required = true
+    help = "input file containing temporal count data of variants"
     "--out", "-o"
     arg_type = String
     default = ""
+    help = "prefix of output files"
     "--start", "-s"
     arg_type = String
     default = ""
+    help = "start date of the analysis"
     "--end", "-e"
     arg_type = String
     default = ""
+    help = "end date of the analysis"
     "--future", "-f"
     arg_type = Int64
     default = 0
+    help = "duration in days for predicting variant frequencies"
     "--baseline", "-b"
     arg_type = Symbol
     required = true
+    help = "variant used as the baseline of relative reproduction numbers"
     "--subjects", "-j"
     arg_type = Symbol
     nargs = '*'
     default = []
+    help = "list of variants to calculate relative reproduction numbers"
     "--precision", "-p"
     arg_type = Float64
     default = 1e-4
+    help = "stopping criterion used as ftol_abs in NLopt"
     "--len", "-l"
     arg_type = Int64
     default = 16 # use 7 for flu
+    help = "trancation point of gamma distribution for generation time"
     "--alpha", "-a"      # TODO: estimate from mean and var 
     arg_type = Float64
     default = 2.03 # use 4.5 for flu
+    help = "shape parameter of gamma distribution for generation time"
     "--theta", "-t"      # TODO: estimate from mean and var
     arg_type = Float64
     default = 2.32 # use 0.60 for flu
+    help = "scale parameter of gamma distribution for generation time"
     "--delta", "-d"
     arg_type = Float64
     default = 0.5
+    help = "unit time of calculation (in days)"
     "--unit", "-u"
     arg_type = Symbol
     default = :D
+    help = "unit time of observations: D (Daily),W (Weekly),or M (Monthly)"
     required = true
     "--Dirichlet", "-D"
     action = :store_true
-    "--frequency", "-q"
+    help = "use Dirichlet multinomial as the observation model"
+    "--frequency", "-q"   
     action = :store_true
+    help = "calculate the time course of variant frequencies"
     "--estimate_GT", "-g"
     action = :store_true
+    help = "estimate relative generation times of variants"
     "--estimate_CI", "-c"
     action = :store_true
+    help = "estimate 95% confidence intervals"
     "--undetected", "-n"
     action = :store_true
+    help = "assume all variants exist undetected from the start date"
 end
 
 parsed_args = parse_args(ARGS, s)
@@ -401,8 +419,7 @@ if estimate_CI
         inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
         
         opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-        #opt_l.xtol_rel = 1e-6 #todo precision 
-        opt_l.xtol_rel = 1e-4 #todo precision
+        opt_l.ftol_abs = ftol_prec
         opt_c.local_optimizer = opt_l
         
         if(i % 2 == 1) # Lower bound
@@ -546,12 +563,9 @@ if calculate_q
             opt_c.maxeval = 500000
             opt_c.ftol_abs = ftol_prec
             
-            inequality_constraint!(opt_c, (par,grad) -> constr_trajectory(par,grad),
-                                   1e-6)
-            
+            inequality_constraint!(opt_c, (par,grad) -> constr_trajectory(par,grad),0)
             opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-            #opt_l.xtol_rel = 1e-6 #todo precision 
-            opt_l.xtol_rel = 1e-4 #todo precision
+            opt_l.ftol_abs = ftol_prec
             opt_c.local_optimizer = opt_l
             
             if(i % 2 == 1) # Lower bound
