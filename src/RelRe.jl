@@ -291,6 +291,10 @@ function negLogL(par::Vector, grad::Vector)
         q = model_q(vec_c, vec_k, vec_qt, vec_t, t_start, t_end, len_tr)
         sumll = 0.0
         for i in 1:length(dates)
+            obs = mat_obs[i,:]
+            if(sum(obs)==0)
+                continue
+            end
             j = Dates.value(dates[i]-t_start)+1
             if(unit==:M)
                 rows = map(v -> j + v, 0:Dates.daysinmonth(dates[i])-1)
@@ -300,8 +304,6 @@ function negLogL(par::Vector, grad::Vector)
                 rows = [j]
             end
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
-            obs = mat_obs[i,:]
-            
             if(dirichlet)
                 alphas = probs * M
                 sumll += logpdf(DirichletMultinomial(sum(obs), alphas), obs)
@@ -315,7 +317,7 @@ function negLogL(par::Vector, grad::Vector)
         return -sumll
     catch e
         println(e)
-        eixt(1)
+        exit(1)
     end
 end
 
