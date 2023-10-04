@@ -41,8 +41,8 @@ s = ArgParseSettings()
     help = "stopping criterion used as ftol_abs in NLopt"
     "--len", "-l"
     arg_type = Int64
-    default = 16 # use 7 for flu
-    help = "trancation point of gamma distribution for generation time"
+    default = -1 # use 7 for flu; automatically calculated if not given
+    help = "truncation point of gamma distribution for generation time"
     "--alpha", "-a"      # TODO: estimate from mean and var 
     arg_type = Float64
     default = 2.03 # use 4.5 for flu
@@ -55,10 +55,10 @@ s = ArgParseSettings()
     arg_type = Float64
     default = 0.5
     help = "unit time of calculation (in days)"
-    "--unit", "-u"
+    "--width", "-w"
     arg_type = Symbol
     default = :D
-    help = "unit time of observations: D (Daily),W (Weekly),or M (Monthly)"
+    help = "bin width of observations: D (Daily),W (Weekly),or M (Monthly)"
     required = true
     "--Dirichlet", "-D"
     action = :store_true
@@ -72,7 +72,7 @@ s = ArgParseSettings()
     "--estimate_CI", "-c"
     action = :store_true
     help = "estimate 95% confidence intervals"
-    "--undetected", "-n"
+    "--undetected", "-u"
     action = :store_true
     help = "assume all variants exist undetected from the start date"
 end
@@ -88,10 +88,9 @@ const baseline = parsed_args["baseline"]
 const start_date = parsed_args["start"]
 const end_date = parsed_args["end"]
 const days_to_predict = parsed_args["future"]
-const len_tr = parsed_args["len"]
 const alpha = parsed_args["alpha"]
 const theta = parsed_args["theta"]
-const unit = parsed_args["unit"]
+const binwidth = parsed_args["width"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
 const estimate_CI = parsed_args["estimate_CI"]
@@ -99,6 +98,11 @@ const assume_undetected = parsed_args["undetected"]
 const calculate_q = parsed_args["frequency"]
 const delta = parsed_args["delta"]
 const dirichlet = parsed_args["Dirichlet"]
+if parsed_args["len"] == -1
+    const len_tr = Int64(ceil(quantile(Gamma(alpha, theta),0.99)))
+else
+    const len_tr = parsed_args["len"]
+end
 
 #Generation time distribution
 function gt(a, c_GT)
@@ -198,12 +202,12 @@ if(typeof(df_count[:,1])!=Vector{Date})
     error("The first column is not a vector of dates")
 end
 
-#Check consistency with unit
-if(unit==:M)
+#Check consistency with binwidth
+if(binwidth==:M)
     if(length(unique(Dates.day.(df_count.date))) != 1)
         error("Dates should be the same day of the month")
     end
-elseif(unit==:W)
+elseif(binwidth==:W)
     if(length(unique(Dates.dayofweek.(df_count.date))) != 1)
         error("Dates should be the same day of the week")
     end
@@ -235,14 +239,14 @@ if(end_date!="")
 end
 
 #Adjust date range 
-if(unit==:M)
+if(binwidth==:M)
     const t_end = maximum(df_count.date)+Day(Dates.daysinmonth(maximum(df_count.date))-1)
-elseif(unit==:W)
+elseif(binwidth==:W)
     const t_end = maximum(df_count.date)+Day(6)
-elseif(unit==:D)
+elseif(binwidth==:D)
     const t_end = maximum(df_count.date)
 else
-    println("error: the unit is not specified")
+    println("error: the binwidth is not specified")
     exit()
 end
 
@@ -296,11 +300,11 @@ function negLogL(par::Vector, grad::Vector)
                 continue
             end
             j = Dates.value(dates[i]-t_start)+1
-            if(unit==:M)
+            if(binwidth==:M)
                 rows = map(v -> j + v, 0:Dates.daysinmonth(dates[i])-1)
-            elseif(unit==:W)
+            elseif(binwidth==:W)
                 rows = map(v -> j + v, 0:6)
-            elseif(unit==:D)
+            elseif(binwidth==:D)
                 rows = [j]
             end
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
@@ -323,11 +327,11 @@ end
 
 vec_c_start = fill(1.0,num_subjects)
 if estimate_GT
-    if unit == :D || unit == :W
+    if binwidth == :D || binwidth == :W
         vec_c_lb = fill(1.0e-10,num_subjects)
         vec_c_ub = fill(10.0,num_subjects)
     else
-        println("error: The unit should be a day or week for the -g option")
+        println("error: The binwidth should be a day or week for the -g option")
         exit(1)
     end
 else

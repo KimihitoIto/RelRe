@@ -28,11 +28,11 @@ Currently the following parameters are recognized
 | `-h`, `--help`        |   			| show this help message and exit                                                               |
 | `-i`, `--in` 			| IN 			| input file containing temporal count data of variants                                         |
 | `-j`, `--subjects` 	| [SUBJECTS...]	| list of variants to calculate relative reproduction numbers (type: Symbol)                    |
-| `-l`, `--len` 		| LEN         	| trancation point of gamma distribution for generation time (type: Int64, default: 16)         |
-| `-n`, `--undetected`  |  				| assume all variants exist undetected from the start date                                      |
+| `-l`, `--len` 		| LEN         	| trancation point of gamma distribution for generation time (type: Int64, default: automatic)         |
+| `-u`, `--undetected`  |  				| assume all variants exist undetected from the start date                                      |
 | `-o`, `--out` 		| OUT         	| prefix of output files (default: "")                                                          |
 | `-p`, `--precision` 	| PRECISION		| stopping criterion used as ftol_abs in NLopt (type: Float64, default: 0.0001)                 |
 | `-q`, `--frequency`   |   			| calculate the time course of variant frequencies                                              |
 | `-s`, `--start` 		| START     	| start date of the analysis (default: "")                                                      |
 | `-t`, `--theta`		| THETA     	| scale parameter of gamma distribution for generation time (type: Float64, default: 2.32)      |
-| `-u`, `--unit` 		| UNIT       	| unit time of observations: D (Daily),W (Weekly),or M (Monthly) (type: Symbol, default: :D)    |
+| `-w`, `--width` 		| WIDTH       	| bin width of observations: D (Daily),W (Weekly),or M (Monthly) (type: Symbol, default: :D)    |
