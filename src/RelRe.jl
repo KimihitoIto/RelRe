@@ -35,10 +35,14 @@ s = ArgParseSettings()
     nargs = '*'
     default = []
     help = "list of variants to calculate relative reproduction numbers"
-    "--precision", "-p"
+    "--ftol_abs"
     arg_type = Float64
-    default = 1e-4
+    default = 0.0
     help = "stopping criterion used as ftol_abs in NLopt"
+    "--ftol_rel"
+    arg_type = Float64
+    default = 1e-8
+    help = "stopping criterion used as ftol_rel in NLopt"
     "--len", "-l"
     arg_type = Int64
     default = -1 # use 7 for flu; automatically calculated if not given
@@ -83,7 +87,8 @@ parsed_args = parse_args(ARGS, s)
 #Init variables
 const infile = parsed_args["in"]
 const outfile_prefix = parsed_args["out"]
-const ftol_prec = parsed_args["precision"]
+const ftol_abs = parsed_args["ftol_abs"]
+const ftol_rel = parsed_args["ftol_rel"]
 const baseline = parsed_args["baseline"]
 const start_date = parsed_args["start"]
 const end_date = parsed_args["end"]
@@ -362,7 +367,8 @@ opt = Opt(:LN_SBPLX, length(par_start))
 opt.min_objective = (par, grad) -> negLogL(par, grad)
 opt.lower_bounds = par_lb
 opt.upper_bounds = par_ub
-opt.ftol_abs = ftol_prec
+opt.ftol_abs = ftol_abs
+opt.ftol_rel = ftol_rel
 opt.maxeval = 500000
 
 println("Maximizing the likehood function")
@@ -420,12 +426,14 @@ if estimate_CI
         opt_c.lower_bounds = par_lb
         opt_c.upper_bounds = par_ub
         opt_c.maxeval = 500000
-        opt_c.ftol_abs = ftol_prec
+        opt_c.ftol_abs = ftol_abs
+        opt_c.ftol_rel = ftol_rel
         
         inequality_constraint!(opt_c, (par,grad) -> constr(par,grad), 1e-6)
         
         opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-        opt_l.ftol_abs = ftol_prec
+        opt_l.ftol_abs = ftol_abs
+        opt_l.ftol_rel = ftol_rel
         opt_c.local_optimizer = opt_l
         
         if(i % 2 == 1) # Lower bound
@@ -567,11 +575,13 @@ if calculate_q
             opt_c.lower_bounds = par_lb
             opt_c.upper_bounds = par_ub
             opt_c.maxeval = 500000
-            opt_c.ftol_abs = ftol_prec
+            opt_c.ftol_abs = ftol_abs
+            opt_c.ftol_rel = ftol_rel
             
             inequality_constraint!(opt_c, (par,grad) -> constr_trajectory(par,grad),0)
             opt_l = NLopt.Opt(:LN_SBPLX, length(par_maxll))
-            opt_l.ftol_abs = ftol_prec
+            opt_l.ftol_abs = ftol_abs
+            opt_l.ftol_rel = ftol_rel
             opt_c.local_optimizer = opt_l
             
             if(i % 2 == 1) # Lower bound
