@@ -300,7 +300,7 @@ function negLogL(par::Vector, grad::Vector)
     vec_k = par[num_subjects+1:num_subjects * 2]
     vec_qt = par[num_subjects*2+1:num_subjects*3]
     if(dirichlet)
-        S = par[num_subjects * 3 + 1]
+        D = par[num_subjects * 3 + 1]
     end
     
     vec_t = map(v -> dict_first[v], subjects)
@@ -317,7 +317,7 @@ function negLogL(par::Vector, grad::Vector)
             rows = collect(j1:j2)
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
             if(dirichlet)
-                alphas = probs * S
+                alphas = probs * D
                 sumll += logpdf(DirichletMultinomial(sum(obs), alphas), obs)
             else
                 sumll += logpdf(Multinomial(sum(obs), probs), obs)
@@ -355,12 +355,12 @@ vec_qt_lb = fill(1.0e-10,num_subjects)
 vec_qt_ub = fill(1.0,num_subjects)
 
 if(dirichlet)
-    S_start = 10
-    S_lb = 1.0e-10
-    S_ub = 1.0e+5
-    par_start = vcat(vec_c_start, vec_k_start, vec_qt_start, S_start)
-    par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb, S_lb)
-    par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub, S_ub)
+    D_start = 10
+    D_lb = 1.0e-10
+    D_ub = 1.0e+5
+    par_start = vcat(vec_c_start, vec_k_start, vec_qt_start, D_start)
+    par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb, D_lb)
+    par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub, D_ub)
 else
     par_start = vcat(vec_c_start, vec_k_start, vec_qt_start)
     par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb)
@@ -502,18 +502,18 @@ end
 CSV.write(outfile_estimate, df_estimates)
 
 if(dirichlet)
-    df_S = DataFrame()
-    df_S[!,"S"] = [par_maxll[3 * num_subjects + 1]]
+    df_D = DataFrame()
+    df_D[!,"D"] = [par_maxll[3 * num_subjects + 1]]
     if estimate_CI
-        df_S[!,"S_lb"] = [minimum(mat_95CI[:,3 * num_subjects + 1])]
-        df_S[!,"S_ub"] = [maximum(mat_95CI[:,3 * num_subjects + 1])]
+        df_D[!,"D_lb"] = [minimum(mat_95CI[:,3 * num_subjects + 1])]
+        df_D[!,"D_ub"] = [maximum(mat_95CI[:,3 * num_subjects + 1])]
     end
     if outfile_prefix==""
-        outfile_S = "Dirichlet.csv"
+        outfile_D = "Dirichlet.csv"
     else
-        outfile_S = outfile_prefix * "_Dirichlet.csv"
+        outfile_D = outfile_prefix * "_Dirichlet.csv"
     end
-    CSV.write(outfile_S, df_S)
+    CSV.write(outfile_D, df_D)
 end
 
 #Calculate Trajectory
