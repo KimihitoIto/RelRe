@@ -1,10 +1,10 @@
 all:RelRe.jl estimates.csv frequencies.pdf average_k.pdf
 
 RelRe.jl:
-	ln -s ../../src/$@ .
+	ln -s ../../$@ .
 
 estimates.csv:Tokyo_BA1_BA2.csv
-	julia --threads 10 RelRe.jl -w W -b Omicron_BA1 -a 2.03 -t 1.392 -i Tokyo_BA1_BA2.csv -c -q -d 1.0 -f 30 -D -u
+	julia --threads 10 RelRe.jl -b Omicron_BA1 -a 2.03 -t 1.392 -i Tokyo_BA1_BA2.csv -c -q -d 1.0 -f 30 -D -u
 
 frequencies.csv:estimates.csv
 
