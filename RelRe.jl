@@ -452,7 +452,7 @@ if estimate_CI
     end
     println(err_95CI)
 end
-
+println("\nWriting estimates")
 df_estimates = DataFrame()
 df_estimates[!,"variant"] = Vector{Symbol}()
 df_estimates[!,"date"] = Vector{Date}()
@@ -474,6 +474,26 @@ if estimate_CI
     df_estimates[!,"qt_ub"] = Vector{Float64}()
 end
 
+#baseline
+row_bl = vcat(baseline, t_start, 1.0) #c
+if estimate_CI
+    row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
+end
+row_bl=vcat(row_bl, 1.0)#k
+if estimate_CI
+    row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
+end    
+row_bl=vcat(row_bl,
+            1.0-sum(map(j->par_maxll[2 * num_subjects+j],1:num_subjects)))#qt
+if estimate_CI
+    sum_qs = sum(mat_95CI[:,2*num_subjects .+ collect(1:num_subjects)],dims=2)
+    lb = 1.0 - maximum(sum_qs)
+    ub = 1.0 - minimum(sum_qs)
+    row_bl=vcat(row_bl,lb, ub)
+end
+push!(df_estimates,row_bl)
+
+#subjects
 for j in 1:num_subjects
     row = vcat(subjects[j], dict_first[subjects[j]], par_maxll[j]) #c
     if estimate_CI
