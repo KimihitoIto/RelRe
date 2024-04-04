@@ -79,11 +79,14 @@ s = ArgParseSettings()
     "--undetected", "-u"
     action = :store_true
     help = "assume all variants exist undetected from the start date"
+    "--blocks", "-r"
+    arg_type = Int64 
+    nargs = '*'
+    default = []
+    help = "a vector indicating variants sharing same reproduction numbers"
 end
-
 parsed_args = parse_args(ARGS, s)
 @show parsed_args
-
 #Init variables
 const infile = parsed_args["in"]
 const outfile_prefix = parsed_args["out"]
@@ -108,6 +111,7 @@ if parsed_args["len"] == -1
 else
     const len_tr = parsed_args["len"]
 end
+const arg_blocks = parsed_args["blocks"]
 
 #Generation time distribution
 function gt(a, c_GT)
@@ -283,16 +287,17 @@ mat_obs = Matrix(filter(x->x.date in dates, df_count)[:,vcat(subjects,baseline)]
 
 function negLogL(par::Vector, grad::Vector)
     if(dirichlet)
-        @assert length(par) == 3 * num_subjects + 1
+        @assert length(par) == 2 * num_subjects + num_k + 1
     else
-        @assert length(par) == 3 * num_subjects
+        @assert length(par) == 2 * num_subjects + num_k
     end
         
     vec_c = par[1:num_subjects]
-    vec_k = par[num_subjects+1:num_subjects * 2]
-    vec_qt = par[num_subjects*2+1:num_subjects*3]
+    vec_k_tmp = par[num_subjects+1:num_subjects+num_k]
+    vec_k = map(x -> x==0 ? 1.0 : vec_k_tmp[x], vec_blocks)
+    vec_qt = par[num_subjects+num_k+1:num_subjects*2+num_k]
     if(dirichlet)
-        M = par[num_subjects * 3 + 1]
+        M = par[num_subjects * 2 + num_k + 1]
     end
     
     vec_t = map(v -> dict_first[v], subjects)
@@ -330,6 +335,42 @@ function negLogL(par::Vector, grad::Vector)
     end
 end
 
+function is_restricted_growth(vec::Vector{Int64})
+  if vec[1] != 0 
+    return false
+  end
+  for i in 2:length(vec)
+    if (vec[i] > 1+maximum(vec[1:(i-1)]) || vec[i] < 0)
+      return false
+    end
+  end
+    return true
+end
+
+if length(arg_blocks) == 0
+  vec_blocks = collect(1:num_subjects)
+else
+  if length(arg_blocks) != num_subjects + 1
+    println("Error: The length of the blocks vector should be the same as the number of variants")
+    exit(1)
+  end 
+  if maximum(arg_blocks) > num_subjects
+    println("Error:The maximum number in the blocks vector should be smaller than or equal to the number of subjects")
+    exit(1)
+  end
+  if minimum(arg_blocks) != 0 
+    println("Error:The minimum number in the blocks vector should be 0")
+    exit(1)
+  end
+  if is_restricted_growth(arg_blocks) == false
+    println("Error: The blocks vector should be a restricted growth string")
+    exit(1)
+  end
+  vec_blocks = arg_blocks[2:length(arg_blocks)]
+end
+@show vec_blocks
+num_k = maximum(vec_blocks)
+
 vec_c_start = fill(1.0,num_subjects)
 if estimate_GT
     if binwidth == :D || binwidth == :W
@@ -343,9 +384,9 @@ else
     vec_c_lb = fill(1.0,num_subjects)
     vec_c_ub = fill(1.0,num_subjects)
 end
-vec_k_start = fill(1.0,num_subjects)
-vec_k_lb = fill(1.0e-10,num_subjects)
-vec_k_ub = fill(10.0,num_subjects)
+vec_k_start = fill(1.0,num_k)
+vec_k_lb = fill(1.0e-10,num_k)
+vec_k_ub = fill(10.0,num_k)
 vec_qt_start = fill(0.001,num_subjects)
 vec_qt_lb = fill(1.0e-10,num_subjects)
 vec_qt_ub = fill(1.0,num_subjects)
@@ -476,12 +517,14 @@ for j in 1:num_subjects
         row = vcat(row, minimum(mat_95CI[:,j]), maximum(mat_95CI[:,j])) #lb, ub
     end
 
-    row=vcat(row, par_maxll[num_subjects+j])#k
+    #row=vcat(row, par_maxll[num_subjects+j])#k
+    #row=vcat(row, par_maxll[num_subjects+vec_blocks[j]])#k
+    row=vcat(row, vec_blocks[j]==0 ? 1.0 : par_maxll[num_subjects+vec_blocks[j]])#k
     if estimate_CI
         row=vcat(row, minimum(mat_95CI[:,num_subjects + j]), #lb
                  maximum(mat_95CI[:,num_subjects + j])) #ub
     end
-    row=vcat(row, par_maxll[2 * num_subjects+j])#qt
+    row=vcat(row, par_maxll[num_subjects+num_k+j])#qt
     if estimate_CI
         row=vcat(row, minimum(mat_95CI[:,2 * num_subjects + j]), #lb
                  maximum(mat_95CI[:,2 * num_subjects + j])) #ub
@@ -515,9 +558,9 @@ end
 #Calculate Trajectory
 
 if estimate_GT
-    freedom = num_subjects * 3
+    freedom = num_subjects * 2 + num_k
 else 
-    freedom = num_subjects * 2
+    freedom = num_subjects + num_k
 end
 
 if dirichlet
