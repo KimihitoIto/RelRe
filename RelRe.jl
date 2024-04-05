@@ -453,22 +453,22 @@ end
 
 if(dirichlet)
     mat_95CI = Matrix{Float64}(undef,
-                               num_subjects * 6 + 2,
-                               num_subjects * 3 + 1)
-    err_95CI = Vector{Symbol}(undef,num_subjects * 6 + 2)
+                               num_subjects * 4 + num_k * 2 + 2,
+                               num_subjects * 2 + num_k + 1)
+    err_95CI = Vector{Symbol}(undef,num_subjects * 4 + num_k * 2 + 2)
 else
     mat_95CI = Matrix{Float64}(undef,
-                               num_subjects * 6,
-                               num_subjects * 3)
-    err_95CI = Vector{Symbol}(undef,num_subjects * 6)
+                               num_subjects * 4 + num_k * 2,
+                               num_subjects * 2 + num_k)
+    err_95CI = Vector{Symbol}(undef,num_subjects * 4 + num_k * 2)
 end
 
 if estimate_CI
     println("\nCalculating 95% confidence intervals (CIs)")
     if(dirichlet)
-        num_loop = (num_subjects * 6 + 2)
+        num_loop = (num_subjects * 4 + num_k * 2 + 2)
     else
-        num_loop = (num_subjects * 6)
+        num_loop = (num_subjects * 4 + num_k * 2)
     end
     
     Threads.@threads for i in 1:num_loop
@@ -538,7 +538,7 @@ subjects_at_start = (1:num_subjects)[map(x->(dict_first[subjects[x]]==t_start), 
 row_bl=vcat(row_bl,
             1.0-sum(map(j->par_maxll[num_subjects+num_k+j],subjects_at_start)))#qt
 if estimate_CI
-    sum_qs = sum(mat_95CI[:,2*num_subjects .+ subjects_at_start],dims=2)
+    sum_qs = sum(mat_95CI[:,(num_subjects + num_k) .+ subjects_at_start],dims=2)
     lb = 1.0 - maximum(sum_qs)
     ub = 1.0 - minimum(sum_qs)
     row_bl=vcat(row_bl,lb, ub)
@@ -551,18 +551,15 @@ for j in 1:num_subjects
     if estimate_CI
         row = vcat(row, minimum(mat_95CI[:,j]), maximum(mat_95CI[:,j])) #lb, ub
     end
-
-    #row=vcat(row, par_maxll[num_subjects+j])#k
-    #row=vcat(row, par_maxll[num_subjects+vec_blocks[j]])#k
     row=vcat(row, vec_blocks[j]==0 ? 1.0 : par_maxll[num_subjects+vec_blocks[j]])#k
     if estimate_CI
-        row=vcat(row, minimum(mat_95CI[:,num_subjects + j]), #lb
-                 maximum(mat_95CI[:,num_subjects + j])) #ub
+        row=vcat(row, minimum(mat_95CI[:,num_subjects + vec_blocks[j]]), #lb
+                 maximum(mat_95CI[:,num_subjects + vec_blocks[j]])) #ub
     end
     row=vcat(row, par_maxll[num_subjects+num_k+j])#qt
     if estimate_CI
-        row=vcat(row, minimum(mat_95CI[:,2 * num_subjects + j]), #lb
-                 maximum(mat_95CI[:,2 * num_subjects + j])) #ub
+        row=vcat(row, minimum(mat_95CI[:,num_subjects + num_k + j]), #lb
+                 maximum(mat_95CI[:,num_subjects + num_k + j])) #ub
     end
     push!(df_estimates,row)
 end
@@ -577,10 +574,10 @@ CSV.write(outfile_estimate, df_estimates)
 
 if(dirichlet)
     df_D = DataFrame()
-    df_D[!,"D"] = [par_maxll[3 * num_subjects + 1]]
+    df_D[!,"D"] = [par_maxll[2 * num_subjects + num_k + 1]]
     if estimate_CI
-        df_D[!,"D_lb"] = [minimum(mat_95CI[:,3 * num_subjects + 1])]
-        df_D[!,"D_ub"] = [maximum(mat_95CI[:,3 * num_subjects + 1])]
+        df_D[!,"D_lb"] = [minimum(mat_95CI[:,2 * num_subjects + num_k + 1])]
+        df_D[!,"D_ub"] = [maximum(mat_95CI[:,2 * num_subjects + num_k + 1])]
     end
     if outfile_prefix==""
         outfile_D = "Dirichlet.csv"
@@ -608,21 +605,21 @@ end
 
 if(dirichlet)
     mat_95CR = Matrix{Float64}(undef,
-                               num_subjects * 6 + 2,
-                               num_subjects * 3 + 1)
-    err_95CR = Vector{Symbol}(undef,num_subjects * 6 + 2)
+                               num_subjects * 4 + num_k * 2 + 2,
+                               num_subjects * 2 + num_k + 1)
+    err_95CR = Vector{Symbol}(undef,num_subjects * 4 + num_k * 2 + 2)
 else
     mat_95CR = Matrix{Float64}(undef,
-                               num_subjects * 6,
-                               num_subjects * 3)
-    err_95CR = Vector{Symbol}(undef,num_subjects * 6)
+                               num_subjects * 4 + num_k * 2,
+                               num_subjects * 2 + num_k)
+    err_95CR = Vector{Symbol}(undef,num_subjects * 4 + num_k * 2)
 end
 
 if calculate_q
     println("\nCalculating trajectory")
     vec_c_ml = par_maxll[1 : num_subjects] #c
-    vec_k_ml = par_maxll[num_subjects+1 : num_subjects*2] #k
-    vec_qt_ml = par_maxll[num_subjects*2+1 : num_subjects*3] #qt
+    vec_k_ml = par_maxll[num_subjects .+ vec_blocks] #k
+    vec_qt_ml = par_maxll[(num_subjects + num_k +1) : (num_subjects*2 + num_k)] #qt
     vec_t_ml = map(v -> dict_first[v], subjects)
 
     t_future = t_end + Day(days_to_predict)
@@ -641,9 +638,9 @@ if calculate_q
     if estimate_CI
         println("Calculating 95% confidence region (CR)")
         if(dirichlet)
-            num_loop = (num_subjects * 6 + 2)
+            num_loop = (num_subjects * 4 + num_k * 2 + 2)
         else
-            num_loop = (num_subjects * 6)
+            num_loop = (num_subjects * 4 + num_k * 2)
         end
         Threads.@threads for i in 1:num_loop
             println("Thread " * string(Threads.threadid()) *
@@ -676,8 +673,8 @@ if calculate_q
         for i in 1:num_loop
             par_cr = mat_95CR[i, :]
             vec_c_cr = par_cr[1 : num_subjects] #c
-            vec_k_cr = par_cr[num_subjects+1 : num_subjects*2] #k
-            vec_qt_cr= par_cr[num_subjects*2+1 : num_subjects*3] #qt
+            vec_k_cr = par_cr[num_subjects .+ vec_blocks] #k
+            vec_qt_cr= par_cr[num_subjects + num_k + 1 : num_subjects * 2 + num_k] #qt
             vec_t_cr = map(v -> dict_first[v], subjects)
 
             q_cr = model_q(vec_c_cr, vec_k_cr, vec_qt_cr, vec_t_cr, 
