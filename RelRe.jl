@@ -536,7 +536,7 @@ end
 subjects_at_start = (1:num_subjects)[map(x->(dict_first[subjects[x]]==t_start), 1:num_subjects)]
 
 row_bl=vcat(row_bl,
-            1.0-sum(map(j->par_maxll[2 * num_subjects+j],subjects_at_start)))#qt
+            1.0-sum(map(j->par_maxll[num_subjects+num_k+j],subjects_at_start)))#qt
 if estimate_CI
     sum_qs = sum(mat_95CI[:,2*num_subjects .+ subjects_at_start],dims=2)
     lb = 1.0 - maximum(sum_qs)
