@@ -59,11 +59,6 @@ s = ArgParseSettings()
     arg_type = Float64
     default = 0.5
     help = "unit time of calculation (in days)"
-    "--width", "-w"
-    arg_type = Symbol
-    default = :D
-    help = "bin width of observations: D (Daily),W (Weekly),or M (Monthly)"
-    required = true
     "--Dirichlet", "-D"
     action = :store_true
     help = "use Dirichlet multinomial as the observation model"
@@ -98,7 +93,6 @@ const end_date = parsed_args["end"]
 const days_to_predict = parsed_args["future"]
 const alpha = parsed_args["alpha"]
 const theta = parsed_args["theta"]
-const binwidth = parsed_args["width"]
 const arg_subjects = parsed_args["subjects"]
 const estimate_GT = parsed_args["estimate_GT"]
 const estimate_CI = parsed_args["estimate_CI"]
@@ -206,33 +200,40 @@ end
 println("Loading counts")
 df_count = DataFrame(CSV.File(infile))
 
-#Check whether the first column is a vector of dates
+#Check whether the first two columns are vectors of dates
 if(typeof(df_count[:,1])!=Vector{Date})
     error("The first column is not a vector of dates")
 end
-
-#Check consistency with binwidth
-if(binwidth==:M)
-    if(length(unique(Dates.day.(df_count.date))) != 1)
-        error("Dates should be the same day of the month")
-    end
-elseif(binwidth==:W)
-    if(length(unique(Dates.dayofweek.(df_count.date))) != 1)
-        error("Dates should be the same day of the week")
-    end
+if(typeof(df_count[:,2])!=Vector{Date})
+    error("The second column is not a vector of dates")
 end
 
-#List the baseline
+#Check the names of the first two columns
+if(propertynames(df_count)[1]!=:date_from)
+    error("The name of the first column must be date_from")
+end
+if(propertynames(df_count)[2]!=:date_till)
+    error("The name of the second column must be date_till")
+end
+
+#Check whether the input table has counts of the baseline variant
+if !(baseline in propertynames(df_count)[3:size(df_count,2)])
+    error("Counts of the baseline variant can't be found in the table")
+end
 println("\nBaseline")
-println(baseline)
+println(baseline) # todo: baseline need to be checked
 
 #Specify variants as all, and remove baseline from subjects
 if(arg_subjects == [])
-    variants = propertynames(df_count)[2:size(df_count,2)]
+    variants = propertynames(df_count)[3:size(df_count,2)]
     subjects = filter(x -> x!= baseline, variants)
 else
-    subjects = arg_subjects # elements need to be checked
-    variants = vcat(subjects,baseline)
+    if !issubset(arg_subjects,propertynames(df_count)[3:size(df_count,2)])
+        error("Counts of a subject can't be found in the table")
+    else
+        subjects = arg_subjects
+        variants = vcat(subjects,baseline)
+    end
 end
 println("\nSubject clades")
 const num_subjects = length(subjects)
@@ -242,32 +243,38 @@ dict_index = Dict{Symbol,Int64}()
 map(x -> dict_index[subjects[x]] = x, 1:length(subjects))
 dict_index[baseline] = length(subjects)+1
 
-#Remove data after end date
+#Determine the date for t_end
 if(end_date!="")
-    deleteat!(df_count, df_count.date .> Date(end_date))
-end
-
-#Adjust date range 
-if(binwidth==:M)
-    const t_end = maximum(df_count.date)+Day(Dates.daysinmonth(maximum(df_count.date))-1)
-elseif(binwidth==:W)
-    const t_end = maximum(df_count.date)+Day(6)
-elseif(binwidth==:D)
-    const t_end = maximum(df_count.date)
+    const t_end = Date(end_date)
+    if !(t_end in df_count.date_till)
+        println("error: The end date should be a day in the date_till column")
+        exit(1)
+    end
 else
-    println("error: the binwidth is not specified")
-    exit()
+    const t_end = maximum(df_count.date_till)
 end
 
-#Remove data before start date
+#Determine the date for t_start
 if(start_date!="")
     const t_start = Date(start_date)
-    deleteat!(df_count, df_count.date .< Date(start_date))
+    if !(t_start in df_count.date_from)
+        println("error: The start date should be a day in the date_from column")
+        exit(1)
+    end
 else
-    const t_start = minimum(df_count.date)
+    const t_start = minimum(df_count.date_from)
 end
 
-#Remove unnecessary columns
+#Check whether the start date is earlier than the end date
+if(t_start >= t_end)
+    println("error: The start date should be earlier than the end date")
+    exit(1)
+end
+
+#Remove data before start date or after end date
+deleteat!(df_count, df_count.date_till .< t_start)
+deleteat!(df_count, df_count.date_from .> t_end)
+
 @show(df_count)
 
 #Record the date of variant's first observation during the period 
@@ -275,15 +282,16 @@ dict_first = Dict{Symbol,Date}()
 if assume_undetected
     map(v -> dict_first[v]=t_start, variants)
 else
-    map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date), variants)
+    map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date_from), variants)
 end
 
 println("\nTime range of analysis")
 println("Start: " * Dates.format(t_start, ISODateFormat))
 println("End: " * Dates.format(t_end, ISODateFormat))
 
-dates = df_count.date
-mat_obs = Matrix(filter(x->x.date in dates, df_count)[:,vcat(subjects,baseline)])
+dates_from = df_count.date_from
+dates_till = df_count.date_till
+mat_obs = Matrix(df_count[:,vcat(subjects,baseline)])
 
 function negLogL(par::Vector, grad::Vector)
     if(dirichlet)
@@ -297,29 +305,24 @@ function negLogL(par::Vector, grad::Vector)
     vec_k = map(x -> x==0 ? 1.0 : vec_k_tmp[x], vec_blocks)
     vec_qt = par[num_subjects+num_k+1:num_subjects*2+num_k]
     if(dirichlet)
-        M = par[num_subjects * 2 + num_k + 1]
+        D = par[num_subjects * 2 + num_k + 1]
     end
     
     vec_t = map(v -> dict_first[v], subjects)
     try
         q = model_q(vec_c, vec_k, vec_qt, vec_t, t_start, t_end, len_tr)
         sumll = 0.0
-        for i in 1:length(dates)
+        for i in 1:length(dates_from)
             obs = mat_obs[i,:]
             if(sum(obs)==0)
                 continue
             end
-            j = Dates.value(dates[i]-t_start)+1
-            if(binwidth==:M)
-                rows = map(v -> j + v, 0:Dates.daysinmonth(dates[i])-1)
-            elseif(binwidth==:W)
-                rows = map(v -> j + v, 0:6)
-            elseif(binwidth==:D)
-                rows = [j]
-            end
+            j1 = Dates.value(dates_from[i]-t_start)+1
+            j2 = Dates.value(dates_till[i]-t_start)+1
+            rows = collect(j1:j2)
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
             if(dirichlet)
-                alphas = probs * M
+                alphas = probs * D
                 sumll += logpdf(DirichletMultinomial(sum(obs), alphas), obs)
             else
                 sumll += logpdf(Multinomial(sum(obs), probs), obs)
@@ -372,12 +375,13 @@ end
 num_k = maximum(vec_blocks)
 
 vec_c_start = fill(1.0,num_subjects)
+
 if estimate_GT
-    if binwidth == :D || binwidth == :W
+    if Dates.value(maximum(dates_till-dates_from)) < 7
         vec_c_lb = fill(1.0e-10,num_subjects)
         vec_c_ub = fill(10.0,num_subjects)
     else
-        println("error: The binwidth should be a day or week for the -g option")
+        println("error: The bin width should be a day or week for the -g option")
         exit(1)
     end
 else
@@ -392,12 +396,12 @@ vec_qt_lb = fill(1.0e-10,num_subjects)
 vec_qt_ub = fill(1.0,num_subjects)
 
 if(dirichlet)
-    M_start = 10
-    M_lb = 1.0e-10
-    M_ub = 1.0e+5
-    par_start = vcat(vec_c_start, vec_k_start, vec_qt_start, M_start)
-    par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb, M_lb)
-    par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub, M_ub)
+    D_start = 10
+    D_lb = 1.0e-10
+    D_ub = 1.0e+5
+    par_start = vcat(vec_c_start, vec_k_start, vec_qt_start, D_start)
+    par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb, D_lb)
+    par_ub = vcat(vec_c_ub, vec_k_ub, vec_qt_ub, D_ub)
 else
     par_start = vcat(vec_c_start, vec_k_start, vec_qt_start)
     par_lb = vcat(vec_c_lb, vec_k_lb, vec_qt_lb)
@@ -489,7 +493,7 @@ if estimate_CI
     end
     println(err_95CI)
 end
-
+println("\nWriting estimates")
 df_estimates = DataFrame()
 df_estimates[!,"variant"] = Vector{Symbol}()
 df_estimates[!,"date"] = Vector{Date}()
@@ -511,6 +515,26 @@ if estimate_CI
     df_estimates[!,"qt_ub"] = Vector{Float64}()
 end
 
+#baseline
+row_bl = vcat(baseline, t_start, 1.0) #c
+if estimate_CI
+    row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
+end
+row_bl=vcat(row_bl, 1.0)#k
+if estimate_CI
+    row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
+end    
+row_bl=vcat(row_bl,
+            1.0-sum(map(j->par_maxll[2 * num_subjects+j],1:num_subjects)))#qt
+if estimate_CI
+    sum_qs = sum(mat_95CI[:,2*num_subjects .+ collect(1:num_subjects)],dims=2)
+    lb = 1.0 - maximum(sum_qs)
+    ub = 1.0 - minimum(sum_qs)
+    row_bl=vcat(row_bl,lb, ub)
+end
+push!(df_estimates,row_bl)
+
+#subjects
 for j in 1:num_subjects
     row = vcat(subjects[j], dict_first[subjects[j]], par_maxll[j]) #c
     if estimate_CI
@@ -541,18 +565,18 @@ end
 CSV.write(outfile_estimate, df_estimates)
 
 if(dirichlet)
-    df_M = DataFrame()
-    df_M[!,"M"] = [par_maxll[3 * num_subjects + 1]]
+    df_D = DataFrame()
+    df_D[!,"D"] = [par_maxll[3 * num_subjects + 1]]
     if estimate_CI
-        df_M[!,"M_lb"] = [minimum(mat_95CI[:,3 * num_subjects + 1])]
-        df_M[!,"M_ub"] = [maximum(mat_95CI[:,3 * num_subjects + 1])]
+        df_D[!,"D_lb"] = [minimum(mat_95CI[:,3 * num_subjects + 1])]
+        df_D[!,"D_ub"] = [maximum(mat_95CI[:,3 * num_subjects + 1])]
     end
     if outfile_prefix==""
-        outfile_M = "Dirichlet.csv"
+        outfile_D = "Dirichlet.csv"
     else
-        outfile_M = outfile_prefix * "_Dirichlet.csv"
+        outfile_D = outfile_prefix * "_Dirichlet.csv"
     end
-    CSV.write(outfile_M, df_M)
+    CSV.write(outfile_D, df_D)
 end
 
 #Calculate Trajectory
