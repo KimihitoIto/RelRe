@@ -525,7 +525,7 @@ if estimate_CI
     row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
 end    
 row_bl=vcat(row_bl,
-            1.0-sum(map(j->par_maxll[2 * num_subjects+j],1:num_subjects)))#qt
+            1.0-sum(map(j->par_maxll[num_subjects+num_k+j],1:num_subjects)))#qt
 if estimate_CI
     sum_qs = sum(mat_95CI[:,2*num_subjects .+ collect(1:num_subjects)],dims=2)
     lb = 1.0 - maximum(sum_qs)
