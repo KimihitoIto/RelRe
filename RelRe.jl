@@ -55,10 +55,10 @@ s = ArgParseSettings()
     arg_type = Float64
     default = 2.32 # use 0.60 for flu
     help = "scale parameter of gamma distribution for generation time"
-    "--delta", "-d"
-    arg_type = Float64
-    default = 0.5
-    help = "unit time of calculation (in days)"
+    "--division", "-d"
+    arg_type = Int64
+    default = 1
+    help = "the number of calculation time steps in one day"
     "--Dirichlet", "-D"
     action = :store_true
     help = "use Dirichlet multinomial as the observation model"
@@ -95,13 +95,14 @@ const estimate_GT = parsed_args["estimate_GT"]
 const estimate_CI = parsed_args["estimate_CI"]
 const assume_undetected = parsed_args["undetected"]
 const calculate_q = parsed_args["frequency"]
-const delta = parsed_args["delta"]
+const division = parsed_args["division"]
 const dirichlet = parsed_args["Dirichlet"]
 if parsed_args["len"] == -1
     const len_tr = Int64(ceil(quantile(Gamma(alpha, theta),0.99)))
 else
     const len_tr = parsed_args["len"]
 end
+const delta = 1.0/division
 
 #Generation time distribution
 function gt(a, c_GT)
