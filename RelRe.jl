@@ -43,6 +43,10 @@ s = ArgParseSettings()
     arg_type = Float64
     default = 1e-8
     help = "stopping criterion used as ftol_rel in NLopt"
+    "--maxeval"
+    arg_type = Int64
+    default = 5_000_000
+    help = "stopping criterion used as maxeval in NLopt"
     "--len", "-l"
     arg_type = Int64
     default = -1 # use 7 for flu; automatically calculated if not given
@@ -87,6 +91,7 @@ const infile = parsed_args["in"]
 const outfile_prefix = parsed_args["out"]
 const ftol_abs = parsed_args["ftol_abs"]
 const ftol_rel = parsed_args["ftol_rel"]
+const maxeval = parsed_args["maxeval"]
 const baseline = parsed_args["baseline"]
 const start_date = parsed_args["start"]
 const end_date = parsed_args["end"]
@@ -414,7 +419,7 @@ opt.lower_bounds = par_lb
 opt.upper_bounds = par_ub
 opt.ftol_abs = ftol_abs
 opt.ftol_rel = ftol_rel
-opt.maxeval = 500000
+opt.maxeval = maxeval
 
 println("Maximizing the likehood function")
 nmaxll, par_maxll, err = optimize(opt, par_start)
@@ -470,7 +475,7 @@ if estimate_CI
         opt_c = Opt(:AUGLAG, length(par_maxll))
         opt_c.lower_bounds = par_lb
         opt_c.upper_bounds = par_ub
-        opt_c.maxeval = 500000
+        opt_c.maxeval = maxeval
         opt_c.ftol_abs = ftol_abs
         opt_c.ftol_rel = ftol_rel
         
@@ -638,7 +643,7 @@ if calculate_q
             opt_c = Opt(:AUGLAG, length(par_maxll))
             opt_c.lower_bounds = par_lb
             opt_c.upper_bounds = par_ub
-            opt_c.maxeval = 500000
+            opt_c.maxeval = maxeval
             opt_c.ftol_abs = ftol_abs
             opt_c.ftol_rel = ftol_rel
             
