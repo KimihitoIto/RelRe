@@ -43,7 +43,7 @@ s = ArgParseSettings()
     help = "stopping criterion used as ftol_rel in NLopt"
     "--maxeval"
     arg_type = Int64
-    default = 5000000 
+    default = 5_000_000
     help = "stopping criterion used as maxeval in NLopt"
     "--len", "-l"
     arg_type = Int64
@@ -422,7 +422,7 @@ opt.lower_bounds = par_lb
 opt.upper_bounds = par_ub
 opt.ftol_abs = ftol_abs
 opt.ftol_rel = ftol_rel
-opt.maxeval = maxeval 
+opt.maxeval = maxeval
 
 println("Maximizing the likehood function")
 nmaxll, par_maxll, err = optimize(opt, par_start)
