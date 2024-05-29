@@ -153,9 +153,9 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     sum_q_subjects =sum(q[1,1:num_subjects])
     if(sum_q_subjects > 1)
         map(j -> q[1,j] /= sum_q_subjects,1:num_subjects)
-        q[1, num_subjects + 1] = 0
+        q[1, num_subjects + 1] = 0.0
     else
-        q[1, num_subjects + 1] = 1 - sum_q_subjects
+        q[1, num_subjects + 1] = 1.0 - sum_q_subjects
     end
     
     vec_sum_nmr=Vector{Float64}(undef, num_subjects)
@@ -176,11 +176,11 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
         
         sum_q_subjects =sum(q[i,1:num_subjects])
         
-        if(sum_q_subjects > 1)
+        if(sum_q_subjects > 1.0)
             map(j -> q[i,j] /= sum_q_subjects,1:num_subjects)
             q[i, num_subjects + 1] = 0.0
         else
-            q[i, num_subjects + 1] = 1 - sum_q_subjects
+            q[i, num_subjects + 1] = 1.0 - sum_q_subjects
         end
     end
     q_day = Matrix{Float64}(undef, duration, num_subjects + 1)
