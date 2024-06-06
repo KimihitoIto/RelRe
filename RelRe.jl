@@ -727,4 +727,15 @@ else
 end
 CSV.write(outfile_loglikelihood, df_loglikelihood)
 
+df_blocks = DataFrame()
+df_blocks[!,"variant"] = vcat(baseline,subjects)
+df_blocks[!, "block"] = vcat(0,vec_blocks)
+
+if outfile_prefix==""
+    outfile_blocks = "blocks.csv"
+else
+    outfile_blocks = outfile_prefix * "_blocks.csv"
+end
+CSV.write(outfile_blocks, df_blocks)
+
 println("done")
