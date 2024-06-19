@@ -12,6 +12,11 @@ s = ArgParseSettings()
     arg_type = String
     default = ""
     help = "prefix of output files"
+    # add --values, -v option for giving initial values of optimisation. Set the default value to "".
+    "--values", "-v"
+    arg_type = String
+    default = ""
+    help = "for giving initial values of optimisation"
     "--start", "-s"
     arg_type = String
     default = ""
@@ -87,6 +92,7 @@ parsed_args = parse_args(ARGS, s)
 #Init variables
 const infile = parsed_args["in"]
 const outfile_prefix = parsed_args["out"]
+const valuefile = parsed_args["values"]
 const ftol_abs = parsed_args["ftol_abs"]
 const ftol_rel = parsed_args["ftol_rel"]
 const maxeval = parsed_args["maxeval"]
@@ -126,7 +132,7 @@ function pmf_gt(c_GT)
     return map(v -> gt(v,c_GT), delta:delta:len_tr)
 end
 
-#Renewal model of variant requencies
+#Renewal model of variant frequencies
 function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
                  vec_qt::Vector{Float64}, vec_t::Vector{Date},
                  t_s, t_e, l)
@@ -297,6 +303,13 @@ dates_from = df_count.date_from
 dates_till = df_count.date_till
 mat_obs = Matrix(df_count[:,vcat(subjects,baseline)])
 
+#read initial values from the file if the file name is given 
+if valuefile != ""
+    @assert isfile(valuefile) == true 
+    println("Loading initial values")
+    df_values = DataFrame(CSV.File(valuefile))
+end
+
 function negLogL(par::Vector, grad::Vector)
     if(dirichlet)
         @assert length(par) == 2 * num_subjects + num_k + 1
@@ -396,12 +409,33 @@ else
     vec_c_lb = fill(1.0,num_subjects)
     vec_c_ub = fill(1.0,num_subjects)
 end
-vec_k_start = fill(1.0,num_k)
-vec_k_lb = fill(1.0e-10,num_k)
-vec_k_ub = fill(10.0,num_k)
-vec_qt_start = fill(0.001,num_subjects)
-vec_qt_lb = fill(1.0e-10,num_subjects)
-vec_qt_ub = fill(1.0,num_subjects)
+#modify the following code to use values read from the value file
+#use mean values for initial values of a group
+# note that the length of the vector is num_k and not num_subjects
+if valuefile != ""
+    k_vals = df_values.k[2:end]
+    vec_k_start = fill(1.0, num_k)
+    for i in 1:num_k
+        indices = findall(x -> x == i, vec_blocks)
+        mean_val = mean(k_vals[indices])
+        vec_k_start[i] = mean_val
+    end
+    vec_k_lb = fill(1.0e-10,num_k) # no need to change 
+    vec_k_ub = fill(10.0,num_k)# no need to change 
+    #modify the following code to use values read from the value file
+    vec_qt_start = df_values.qt[2:end]
+    vec_qt_lb = fill(1.0e-10,num_subjects)# no need to change 
+    vec_qt_ub = fill(1.0,num_subjects)# no need to change 
+    #Check if the vec_k_start and vec_qt_start were correct.
+    @show vec_k_start vec_qt_start
+else
+    vec_k_start = fill(1.0,num_k)
+    vec_k_lb = fill(1.0e-10,num_k)
+    vec_k_ub = fill(10.0,num_k)
+    vec_qt_start = fill(0.001,num_subjects)
+    vec_qt_lb = fill(1.0e-10,num_subjects)
+    vec_qt_ub = fill(1.0,num_subjects)
+end
 
 if(dirichlet)
     D_start = 10
