@@ -1,7 +1,5 @@
 using CSV, Dates, DataFrames, Distributions, NLopt, ArgParse
 #julia --threads 5 RelRe.jl -b baseline -s 2020-01-01 -e 2021-01-01 variant_freq.csv 
-#TODO: Add abort/error handeling!
-#TODO: An option for use of the first date.
 
 #Pull in information from command line arguments
 s = ArgParseSettings()
@@ -64,10 +62,10 @@ s = ArgParseSettings()
     arg_type = Float64
     default = 2.32 # use 0.60 for flu
     help = "scale parameter of gamma distribution for generation time"
-    "--delta", "-d"
-    arg_type = Float64
-    default = 0.5
-    help = "unit time of calculation (in days)"
+    "--division", "-d"
+    arg_type = Int64
+    default = 1
+    help = "the number of calculation time steps in one day"
     "--Dirichlet", "-D"
     action = :store_true
     help = "use Dirichlet multinomial as the observation model"
@@ -109,13 +107,14 @@ const estimate_GT = parsed_args["estimate_GT"]
 const estimate_CI = parsed_args["estimate_CI"]
 const assume_undetected = parsed_args["undetected"]
 const calculate_q = parsed_args["frequency"]
-const delta = parsed_args["delta"]
+const division = parsed_args["division"]
 const dirichlet = parsed_args["Dirichlet"]
 if parsed_args["len"] == -1
     const len_tr = Int64(ceil(quantile(Gamma(alpha, theta),0.99)))
 else
     const len_tr = parsed_args["len"]
 end
+const delta = 1.0/division
 const arg_blocks = parsed_args["blocks"]
 
 #Generation time distribution
@@ -162,9 +161,9 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     sum_q_subjects =sum(q[1,1:num_subjects])
     if(sum_q_subjects > 1)
         map(j -> q[1,j] /= sum_q_subjects,1:num_subjects)
-        q[1, num_subjects + 1] = 0
+        q[1, num_subjects + 1] = 0.0
     else
-        q[1, num_subjects + 1] = 1 - sum_q_subjects
+        q[1, num_subjects + 1] = 1.0 - sum_q_subjects
     end
     
     vec_sum_nmr=Vector{Float64}(undef, num_subjects)
@@ -185,11 +184,11 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
         
         sum_q_subjects =sum(q[i,1:num_subjects])
         
-        if(sum_q_subjects > 1)
+        if(sum_q_subjects > 1.0)
             map(j -> q[i,j] /= sum_q_subjects,1:num_subjects)
             q[i, num_subjects + 1] = 0.0
         else
-            q[i, num_subjects + 1] = 1 - sum_q_subjects
+            q[i, num_subjects + 1] = 1.0 - sum_q_subjects
         end
     end
     q_day = Matrix{Float64}(undef, duration, num_subjects + 1)
@@ -317,7 +316,6 @@ function negLogL(par::Vector, grad::Vector)
     else
         @assert length(par) == 2 * num_subjects + num_k
     end
-        
     vec_c = par[1:num_subjects]
     vec_k_tmp = par[num_subjects+1:num_subjects+num_k]
     vec_k = map(x -> x==0 ? 1.0 : vec_k_tmp[x], vec_blocks)
@@ -340,13 +338,18 @@ function negLogL(par::Vector, grad::Vector)
             rows = collect(j1:j2)
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
             if(dirichlet)
-                alphas = probs * D
-                sumll += logpdf(DirichletMultinomial(sum(obs), alphas), obs)
+                indices = 1:(num_subjects+1)
+                non_zero_indices = indices[map(x->probs[x]!=0.0,indices)]
+                alphas = probs[non_zero_indices] * D
+                sumll += logpdf(DirichletMultinomial(sum(obs[non_zero_indices]),
+                                                     alphas),
+                                obs[non_zero_indices])
             else
                 sumll += logpdf(Multinomial(sum(obs), probs), obs)
             end
         end
         if !isfinite(sumll)
+            println("Warning: sumll is not finite")
             return floatmax(Float64)
         end
         return -sumll
@@ -562,11 +565,14 @@ end
 row_bl=vcat(row_bl, 1.0)#k
 if estimate_CI
     row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
-end    
+end
+
+subjects_at_start = (1:num_subjects)[map(x->(dict_first[subjects[x]]==t_start), 1:num_subjects)]
+
 row_bl=vcat(row_bl,
-            1.0-sum(map(j->par_maxll[num_subjects+num_k+j],1:num_subjects)))#qt
+            1.0-sum(map(j->par_maxll[num_subjects+num_k+j],subjects_at_start)))#qt
 if estimate_CI
-    sum_qs = sum(mat_95CI[:,(num_subjects + num_k) .+ collect(1:num_subjects)],dims=2)
+    sum_qs = sum(mat_95CI[:,(num_subjects + num_k) .+ subjects_at_start],dims=2)
     lb = 1.0 - maximum(sum_qs)
     ub = 1.0 - minimum(sum_qs)
     row_bl=vcat(row_bl,lb, ub)
