@@ -1,7 +1,5 @@
 using CSV, Dates, DataFrames, Distributions, NLopt, ArgParse
 #julia --threads 5 RelRe.jl -b baseline -s 2020-01-01 -e 2021-01-01 variant_freq.csv 
-#TODO: Add abort/error handeling!
-#TODO: An option for use of the first date.
 
 #Pull in information from command line arguments
 s = ArgParseSettings()
@@ -301,7 +299,6 @@ function negLogL(par::Vector, grad::Vector)
     else
         @assert length(par) == 3 * num_subjects
     end
-        
     vec_c = par[1:num_subjects]
     vec_k = par[num_subjects+1:num_subjects * 2]
     vec_qt = par[num_subjects*2+1:num_subjects*3]
@@ -323,13 +320,18 @@ function negLogL(par::Vector, grad::Vector)
             rows = collect(j1:j2)
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
             if(dirichlet)
-                alphas = probs * D
-                sumll += logpdf(DirichletMultinomial(sum(obs), alphas), obs)
+                indices = 1:(num_subjects+1)
+                non_zero_indices = indices[map(x->probs[x]!=0.0,indices)]
+                alphas = probs[non_zero_indices] * D
+                sumll += logpdf(DirichletMultinomial(sum(obs[non_zero_indices]),
+                                                     alphas),
+                                obs[non_zero_indices])
             else
                 sumll += logpdf(Multinomial(sum(obs), probs), obs)
             end
         end
         if !isfinite(sumll)
+            println("Warning: sumll is not finite")
             return floatmax(Float64)
         end
         return -sumll
@@ -488,11 +490,14 @@ end
 row_bl=vcat(row_bl, 1.0)#k
 if estimate_CI
     row_bl = vcat(row_bl, 1.0, 1.0) #lb, ub
-end    
+end
+
+subjects_at_start = (1:num_subjects)[map(x->(dict_first[subjects[x]]==t_start), 1:num_subjects)]
+
 row_bl=vcat(row_bl,
-            1.0-sum(map(j->par_maxll[2 * num_subjects+j],1:num_subjects)))#qt
+            1.0-sum(map(j->par_maxll[2 * num_subjects+j],subjects_at_start)))#qt
 if estimate_CI
-    sum_qs = sum(mat_95CI[:,2*num_subjects .+ collect(1:num_subjects)],dims=2)
+    sum_qs = sum(mat_95CI[:,2*num_subjects .+ subjects_at_start],dims=2)
     lb = 1.0 - maximum(sum_qs)
     ub = 1.0 - minimum(sum_qs)
     row_bl=vcat(row_bl,lb, ub)

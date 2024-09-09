@@ -34,7 +34,7 @@ Currently the following parameters are recognized
 | `-a`, `--alpha`       | ALPHA         | shape parameter of gamma distribution for generation time (type: Float64, default: 2.03)     |
 | `-b`, `--baseline`    | BASELINE      | variant used as the baseline of relative reproduction numbers                                |
 | `-c`, `--estimate_CI` |               | estimate 95% confidence intervals                                                            |
-| `-d`, `--delta`       | DELTA    	    | unit time of calculation (in days) (type:Float64, default: 0.5)                              |
+| `-d`, `--division`    | DIVISION 	    | the number of calculation time steps in one day (type: Int64, default: 1)
 | `-D`, `--Dirichlet`   |  	            | use Dirichlet multinomial as the observation model                                           |
 | `-e`, `--end`         | END           | end date of the analysis (default: "")                                                       |
 | `-f`, `--future` 	    | FUTURE        | duration in days for predicting variant frequencies (type: Int64, default: 0)                |
@@ -58,4 +58,4 @@ julia --threads 10 RelRe.jl -b Omicron_BA1 -a 2.03 -t 1.392 -i Tokyo_BA1_BA2.csv
 ```
 
 > **Note**
-> This version of the code is optimized for Sars-Cov-2. Parameters should be adjusted as needed.
+> The default values for the generation time parameters (alpha, theta) are optimized for SARS-CoV-2. These parameters should be adjusted as needed.

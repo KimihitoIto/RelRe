@@ -36,8 +36,8 @@ for(i in 1:nrow(df_count)){
 dates <- df_frequency$date;
 color <- c("blue", "orange", "red")
 
-#pdf("frequencies_bar.pdf", width=8, height=6)
-svg("frequencies_bar.svg", width=8, height=6)
+pdf("frequencies_bar.pdf", width=8, height=6)
+#svg("frequencies_bar.svg", width=8, height=6)
 plot(dates, rep(0,length(dates)), xlab="", xaxt="n", type="n", ylab="Frequency", ylim=c(0,1))
 points(df_count$date_from, f_Delta, pch=1, col=color[1]);
 points(df_count$date_from, f_Omicron_BA1, pch=2, col=color[2]);
