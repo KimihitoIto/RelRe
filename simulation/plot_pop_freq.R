@@ -1,14 +1,14 @@
 library(dplyr);
 n = 12
 
-df_frequency <- read.csv("frequencies.csv");
+df_frequency <- read.csv("pop_freq.csv");
 df_frequency$date <- as.Date(df_frequency$date);
 
 
 dates <- df_frequency$date;
 color <- rainbow(12) 
 
-pdf("frequencies.pdf", width=8, height=6)
+pdf("pop_freq.pdf", width=8, height=6)
 plot(dates, rep(0,length(dates)), xlab="", xaxt="n", type="n", ylab="Frequency", ylim=c(0,1))
 
 axis(side=1,at=dates,labels=format(dates,"%h %d"),tick=T,las=2);

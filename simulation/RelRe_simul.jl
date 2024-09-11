@@ -295,9 +295,9 @@ df_freq[!,"average_c"] = vec_average_c
 df_freq[!,"average_k"] = vec_average_k
 
 if outfile_prefix==""
-    outfile_frequency = "frequencies.csv"
+    outfile_frequency = "pop_freq.csv"
 else
-    outfile_frequency = outfile_prefix * "_frequencies.csv"
+    outfile_frequency = outfile_prefix * "_pop_freq.csv"
 end
 CSV.write(outfile_frequency, df_freq)
 
