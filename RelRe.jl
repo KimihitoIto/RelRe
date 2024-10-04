@@ -387,7 +387,7 @@ opt.ftol_abs = ftol_abs
 opt.ftol_rel = ftol_rel
 opt.maxeval = maxeval 
 
-println("Maximizing the likehood function")
+println("Maximizing the likelihood function")
 nmaxll, par_maxll, err = optimize(opt, par_start)
 println("Maximization finished")
 

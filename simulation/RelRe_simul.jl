@@ -19,31 +19,6 @@ s = ArgParseSettings()
     "--end", "-e"
     arg_type = String
     default = ""
-    help = "end date of the analysis"
-    "--future", "-f" 
-    arg_type = Int64
-    default = 0
-    help = "duration in days for predicting variant frequencies"
-    "--baseline", "-b" # remove this
-    arg_type = Symbol
-    help = "variant used as the baseline of relative reproduction numbers"
-    "--subjects", "-j" # remove this
-    arg_type = Symbol
-    nargs = '*'
-    default = []
-    help = "list of variants to calculate relative reproduction numbers"
-    "--ftol_abs" # remove this
-    arg_type = Float64
-    default = 0.0
-    help = "stopping criterion used as ftol_abs in NLopt"
-    "--ftol_rel"
-    arg_type = Float64
-    default = 1e-8 # remove this
-    help = "stopping criterion used as ftol_rel in NLopt"
-    "--maxeval" # remove this 
-    arg_type = Int64
-    default = 5000000 
-    help = "stopping criterion used as maxeval in NLopt"
     "--len", "-l"
     arg_type = Int64
     default = -1 # use 7 for flu; automatically calculated if not given
@@ -63,18 +38,6 @@ s = ArgParseSettings()
     "--Dirichlet", "-D"
     action = :store_true
     help = "use Dirichlet multinomial as the observation model"
-    "--frequency", "-q"   
-    action = :store_true
-    help = "calculate the time course of variant frequencies"
-    "--estimate_GT", "-g" # remove this
-    action = :store_true
-    help = "estimate relative generation times of variants"
-    "--estimate_CI", "-c" # remove this
-    action = :store_true
-    help = "estimate 95% confidence intervals"
-    "--undetected", "-u" # remove this
-    action = :store_true
-    help = "assume all variants exist undetected from the start date"
     "--num", "-n"
     arg_type = Int64
     default = 100
@@ -87,20 +50,10 @@ parsed_args = parse_args(ARGS, s)
 #Init variables
 const infile = parsed_args["in"]
 const outfile_prefix = parsed_args["out"]
-const ftol_abs = parsed_args["ftol_abs"]
-const ftol_rel = parsed_args["ftol_rel"]
-const maxeval = parsed_args["maxeval"]
-#const baseline = parsed_args["baseline"] 
 const start_date = parsed_args["start"]
 const end_date = parsed_args["end"]
-const days_to_predict = parsed_args["future"]
 const alpha = parsed_args["alpha"]
 const theta = parsed_args["theta"]
-#const arg_subjects = parsed_args["subjects"]
-const estimate_GT = parsed_args["estimate_GT"]
-const estimate_CI = parsed_args["estimate_CI"]
-const assume_undetected = parsed_args["undetected"]
-const calculate_q = parsed_args["frequency"]
 const division = parsed_args["division"]
 const dirichlet = parsed_args["Dirichlet"]
 const num = parsed_args["num"]
@@ -164,7 +117,11 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     vec_sum_nmr=Vector{Float64}(undef, num_subjects)
     
     for i in 2:length(delta:delta:duration)
-        t = t_s + Day(Int64(floor((delta:delta:duration)[i])))
+        if(delta == 1.0)
+            t = t_s + Day(i-1)
+        else
+            t = t_s + Day(Int64(floor((delta:delta:duration)[i])))
+        end
         
         fill!(vec_sum_nmr, 0.0)
         sum_dnm = 0.0
@@ -285,16 +242,15 @@ println("End: " * Dates.format(t_end, ISODateFormat))
 subjects_at_start = (1:num_subjects)[map(x->(dict_first[subjects[x]]==t_start), 1:num_subjects)]
 println("\nCalculating trajectory")
 
-t_future = t_end + Day(days_to_predict)
 q_simul = model_q(vec_c, vec_k, vec_qt, vec_t,
-               t_start, t_future, len_tr)
+               t_start, t_end, len_tr)
 
 vec_average_k = q_simul * vcat(vec_k, 1.0)
 vec_average_c = q_simul * vcat(vec_c, 1.0)
     
 println("\nWriting frequencies")
 df_freq = DataFrame()
-df_freq[!,"date"] = collect(t_start:Day(1):t_future)
+df_freq[!,"date"] = collect(t_start:Day(1):t_end)
 map(x -> df_freq[!,string(x)] = q_simul[:,dict_index[x]], subjects)
 df_freq[!,string(baseline)] = q_simul[:,length(subjects)+1]
 df_freq[!,"average_c"] = vec_average_c

@@ -11,7 +11,7 @@ parameters.csv:
 	julia params_gen.jl $(N)
 
 counts.csv:parameters.csv
-	julia RelRe_simul.jl -b v000 -a $(ALPHA) -t $(THETA) -i $< -d 1 -e 2024-06-30 -n $(n) 
+	julia RelRe_simul.jl -a $(ALPHA) -t $(THETA) -i $< -d 1 -e 2024-06-30 -n $(n) 
 
 estimates.csv:counts.csv
 	julia --threads=$(THREADS) RelRe.jl -b v000 -a $(ALPHA) -t $(THETA) -i $< -d 1 -u 
