@@ -69,7 +69,7 @@ s = ArgParseSettings()
     "--Dirichlet", "-D"
     action = :store_true
     help = "use Dirichlet multinomial as the observation model"
-    "--frequency", "-q"   
+    "--frequency", "-q"
     action = :store_true
     help = "calculate the time course of variant frequencies"
     "--estimate_GT", "-g"
@@ -169,7 +169,11 @@ function model_q(vec_c::Vector{Float64}, vec_k::Vector{Float64},
     vec_sum_nmr=Vector{Float64}(undef, num_subjects)
     
     for i in 2:length(delta:delta:duration)
-        t = t_s + Day(Int64(floor((delta:delta:duration)[i])))
+        if(delta == 1.0)
+            t = t_s + Day(i-1)
+        else
+            t = t_s + Day(Int64(floor((delta:delta:duration)[i])))
+        end
         
         fill!(vec_sum_nmr, 0.0)
         sum_dnm = 0.0
@@ -458,7 +462,7 @@ opt.ftol_abs = ftol_abs
 opt.ftol_rel = ftol_rel
 opt.maxeval = maxeval
 
-println("Maximizing the likehood function")
+println("Maximizing the likelihood function")
 nmaxll, par_maxll, err = optimize(opt, par_start)
 println("Maximization finished")
 
