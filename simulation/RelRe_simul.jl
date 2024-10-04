@@ -75,6 +75,10 @@ s = ArgParseSettings()
     "--undetected", "-u" # remove this
     action = :store_true
     help = "assume all variants exist undetected from the start date"
+    "--num", "-n"
+    arg_type = Int64
+    default = 100
+    help = "total number of variants sampled"
 end
 
 parsed_args = parse_args(ARGS, s)
@@ -99,6 +103,8 @@ const assume_undetected = parsed_args["undetected"]
 const calculate_q = parsed_args["frequency"]
 const division = parsed_args["division"]
 const dirichlet = parsed_args["Dirichlet"]
+const num = parsed_args["num"]
+
 if parsed_args["len"] == -1
     const len_tr = Int64(ceil(quantile(Gamma(alpha, theta),0.99)))
 else
@@ -301,4 +307,20 @@ else
 end
 CSV.write(outfile_frequency, df_freq)
 
+num_rows = size(q_simul, 1) 
+num_cols = size(q_simul, 2)
+
+new_matrix = zeros(Int64, num_rows, num_cols)
+
+for i in 1:num_rows
+    new_matrix[i,:] = rand(Multinomial(num,q_simul[i,:]))
+end
+
+df_sim_counts = DataFrame(new_matrix, :auto)
+new_names = names(df_freq)[2:(end - 2)]
+rename!(df_sim_counts, Symbol.(names(df_sim_counts)) .=> new_names)
+date = df_freq[:, 1]
+date = DataFrame(date_from=date,date_till=date)
+df_sim_counts = hcat(date, df_sim_counts)
+CSV.write("counts.csv", df_sim_counts)
 println("done")
