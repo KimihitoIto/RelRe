@@ -1,7 +1,7 @@
 ALPHA=4.109
 THETA=0.73
 THREADS=16
-N=3
+N=7
 n=100
 all:RelRe.jl counts.csv pop_freq.pdf estimates.csv parameters.csv	
 RelRe.jl:
