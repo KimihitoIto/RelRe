@@ -202,7 +202,7 @@ end
 
 #Load in specified matrix file
 println("Loading counts")
-df_count = DataFrame(CSV.File(infile))
+df_count = DataFrame(CSV.File(infile,missingstring="NA"))
 
 #Check whether the first two columns are vectors of dates
 if(typeof(df_count[:,1])!=Vector{Date})
@@ -286,7 +286,7 @@ dict_first = Dict{Symbol,Date}()
 if assume_undetected
     map(v -> dict_first[v]=t_start, variants)
 else
-    map(v -> dict_first[v]=minimum(filter(v => n -> n>0, df_count).date_from), variants)
+    map(v -> dict_first[v]=minimum(filter(v => n -> (!ismissing(n) && n>0), df_count).date_from), variants)
 end
 
 println("\nTime range of analysis")
@@ -315,23 +315,26 @@ function negLogL(par::Vector, grad::Vector)
         q = model_q(vec_c, vec_k, vec_qt, vec_t, t_start, t_end, len_tr)
         sumll = 0.0
         for i in 1:length(dates_from)
-            obs = mat_obs[i,:]
-            if(sum(obs)==0)
-                continue
-            end
             j1 = Dates.value(dates_from[i]-t_start)+1
             j2 = Dates.value(dates_till[i]-t_start)+1
             rows = collect(j1:j2)
             probs = vec(max.(0, mean(q[rows, 1:num_subjects+1], dims=1)))
+            obs = mat_obs[i,:]
+
+            indices = 1:(num_subjects+1)
+            valid_indices = indices[map(x->(probs[x]!=0.0 && !ismissing(obs[x])),indices)]
+            valid_probs = probs[valid_indices] ./ sum(probs[valid_indices])
+            valid_obs = Vector{Int64}(obs[valid_indices])
+            if(sum(valid_obs)==0)
+                continue
+            end
             if(dirichlet)
-                indices = 1:(num_subjects+1)
-                non_zero_indices = indices[map(x->probs[x]!=0.0,indices)]
-                alphas = probs[non_zero_indices] * D
-                sumll += logpdf(DirichletMultinomial(sum(obs[non_zero_indices]),
-                                                     alphas),
-                                obs[non_zero_indices])
+                alphas = valid_probs * D
+                sumll += logpdf(DirichletMultinomial(sum(valid_obs),alphas),
+                                valid_obs)
             else
-                sumll += logpdf(Multinomial(sum(obs), probs), obs)
+                sumll += logpdf(Multinomial(sum(valid_obs), valid_probs),
+                                valid_obs)
             end
         end
         if !isfinite(sumll)
