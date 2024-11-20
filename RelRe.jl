@@ -60,7 +60,7 @@ s = ArgParseSettings()
     "--division", "-d"
     arg_type = Int64
     default = 1
-    help = "the number of calculation time steps in one day"
+    help = "divide a day into the given number of equal periods"
     "--Dirichlet", "-D"
     action = :store_true
     help = "use Dirichlet multinomial as the observation model"
@@ -197,7 +197,7 @@ end
 
 #Check for values provided in program options
 if(delta > 1.0 || !isinteger(1.0/delta))
-    error("The delta should be a number obtained by deviding one by an integer")
+    error("The delta should be a number obtained by dividing one by an integer")
 end
 
 #Load in specified matrix file
