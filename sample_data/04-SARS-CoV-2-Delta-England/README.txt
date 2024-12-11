@@ -1,6 +1,6 @@
 About the dataset
 
-The dataset was used in the article by Itok et.al shown below. Read
+The dataset was used in the article by Piantham and Ito shown below. Read
 the article to see the background of the analysis and the
 interpretation of results.
 
