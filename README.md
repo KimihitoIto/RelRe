@@ -4,9 +4,9 @@
 
 
 ## Required packages
-The RelRe program is written in the Julia language, and it uses CSV, Dates, DataFrames, Distributions, NLopt, ArgParse packages. Install these packages if your julia do not have them.
-```julia
-import Pkg; Pkg.add(["CSV", "Dates", "DataFrames", "Distributions", "NLopt", "ArgParse"])
+The RelRe program is written in the Julia language, and it uses CSV, Dates, DataFrames, Distributions, NLopt, ArgParse packages. Install these packages using install_packages.jl provided with the RelRe code if your julia do not have them.
+```sh
+julia install_packages.jl
 ```
 
 ## The format of input files
@@ -26,7 +26,6 @@ The first line of the CSV file should indicate the column names. The first two c
 
 
 ## Params
-
 Currently the following parameters are recognized
 
 | parameter             | variable      | description                                                                                  |
@@ -34,7 +33,7 @@ Currently the following parameters are recognized
 | `-a`, `--alpha`       | ALPHA         | shape parameter of gamma distribution for generation time (type: Float64, default: 2.03)     |
 | `-b`, `--baseline`    | BASELINE      | variant used as the baseline of relative reproduction numbers                                |
 | `-c`, `--estimate_CI` |               | estimate 95% confidence intervals                                                            |
-| `-d`, `--division`    | DIVISION 	    | the number of calculation time steps in one day (type: Int64, default: 1)
+| `-d`, `--division`    | DIVISION 	    | divide a day into the given number of equal periods (type: Int64, default: 1) 
 | `-D`, `--Dirichlet`   |  	            | use Dirichlet multinomial as the observation model                                           |
 | `-e`, `--end`         | END           | end date of the analysis (default: "")                                                       |
 | `-f`, `--future` 	    | FUTURE        | duration in days for predicting variant frequencies (type: Int64, default: 0)                |
@@ -47,15 +46,38 @@ Currently the following parameters are recognized
 | `-o`, `--out`         | OUT         	| prefix of output files (default: "")                                                         |
 | `--ftol_abs`          | FTOL_ABS      |  stopping criterion used as ftol_abs in NLopt (type: Float64, default: 0.0)                  |
 | `--ftol_rel`          | FTOL_REL      | stopping criterion used as ftol_rel in NLopt (type: Float64, default: 1.0e-8)                |
+| `--maxeval`          | MAXEVAL      | stopping criterion used as maxeval in NLopt (type: Float64, default: 5000000)                |
 | `-q`, `--frequency`   |               | calculate the time course of variant frequencies                                             |
 | `-s`, `--start`       | START         | start date of the analysis (default: "")                                                     |
 | `-t`, `--theta`       | THETA         | scale parameter of gamma distribution for generation time (type: Float64, default: 2.32)     |
 
-## Usage example
+## Output files
+The RelRe program writes the results into four CSV files, namely, estimates.csv, Dirichlet.csv, loglikelihood.csv, and frequencies.csv. Table below shows the summary of each output file.
+
+|File name        | Description        |
+|-----------------|--------------------|
+|estimates.csv    |The file gives the maximum likelihood estimates of parameters of c_1,...,c_n,k_1,...,k_n,q_(A_1)(t_(A_1)),...,q_(A_n)(t_(A_n)). Parameters c_1,...,c_n are estimated only when the -g option is given. The 95% confidence intervals of parameters are calculated when the -c option is given. The file also contains the date when each variant was assumed to be introduced into the population.|
+|Dirichlet.csv    |The value of D, i.e., the sum of the parameters of the Dirichlet distribution is contained. The file is created only when the -D option is given. The 95% confidence intervals are calculated when the -c option is given.|
+|loglikelihood.csv|The file contains the logarithm of the maximum likelihood, the number of free parameters, and the value of AIC.|
+|frequencies.csv  |The file contains the maximum likelihood estimates of the relative frequency of each variant for each day in the analysis period. The population average of the relative instantaneous reproduction numbers for each day is also given. The lower and upper bound of the 95% confidence intervals are given when the -c option is given.|
+
+## Sample Datasets
+
+The RelRe package contains sample datasets in the “sample_data” folder. Each sample dataset has a Makefile, and one can run the RelRe program by typing “make” in a terminal after moving into the directories containing the sample dataset.
 
 ```sh
-julia --threads 10 RelRe.jl -b Omicron_BA1 -a 2.03 -t 1.392 -i Tokyo_BA1_BA2.csv -c -q -d 1.0 -f 30 -D -u
+cd sample_data/01-SARS-CoV-2-Delta-Japan
+make
 ```
+
+## Usage example
+
+The following is an example command to run the RelRe program. 
+
+```sh
+julia --threads 10 RelRe.jl -i Japan_Linenage_Counts.csv -b other -a 3.42 -t 1.36 -c -q -f 90
+```
+The command runs the RelRe program with 10 threads (--threads) based on the input data (-i) provided in "Japan_Lineage_Counts.csv" using "other" as the baseline variant (-b) assuming generation times follows the gamma distribution with a shape parameter (-a) of 3.42 and a scale parameter (-t) of 1.36. The program outputs estimates and their 95% confidence intervals (-c) of parameters as well as the relative frequencies (-q) of variants for each day up to 90 days (-f) after the final date of the observations.
 
 > **Note**
 > The default values for the generation time parameters (alpha, theta) are optimized for SARS-CoV-2. These parameters should be adjusted as needed.
