@@ -4,7 +4,7 @@ RelRe.jl:
 	ln -s ../../$@ .
 
 estimates.csv:Denmark_all_lineages.csv
-	julia --threads 16 RelRe.jl -b Delta -a 2.03 -t 2.32 -i Denmark_all_lineages.csv -c -q -f 30 -g -D
+	julia --threads 16 RelRe.jl -b Delta -a 2.03 -t 2.32 -l 16 -i Denmark_all_lineages.csv -c -q -f 30 -g 
 
 frequencies.csv:estimates.csv
 
