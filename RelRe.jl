@@ -86,6 +86,9 @@ s = ArgParseSettings()
     nargs = '*'
     default = []
     help = "a vector indicating variants sharing same reproduction numbers"
+    "--bonferroni"
+    action = :store_true
+    help = "Bonferroni correction for pairwise comparison of confidence intervals"
 end
 parsed_args = parse_args(ARGS, s)
 @show parsed_args
@@ -472,7 +475,8 @@ println(err)
 
 #Confidence Intervals
 function constr(vec_par, vec_grad)
-    -quantile(Chisq(1),0.95)/2 - nmaxll + negLogL(vec_par, vec_grad);
+    num_combs = num_k * (num_k - 1)/2
+    -quantile(Chisq(1),1-(0.05/num_combs))/2 - nmaxll + negLogL(vec_par, vec_grad);
 end
 
 function f1(par, grad,i)
